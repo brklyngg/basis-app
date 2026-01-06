@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChatInterface } from "@/components/chat-interface";
 import { FinancialSummary } from "@/components/financial-summary";
-import type { Transaction, Account, FinancialSnapshot } from "@/types";
+import type { Transaction, Account, FinancialSnapshot, PlaidItemError } from "@/types";
 import { analyzeTransactions } from "@/lib/financial-analysis";
 
 export default function DashboardPage() {
@@ -19,6 +19,8 @@ export default function DashboardPage() {
   const [snapshot, setSnapshot] = useState<FinancialSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [plaidErrors, setPlaidErrors] = useState<PlaidItemError[]>([]);
+  const [needsReauth, setNeedsReauth] = useState(false);
 
   // Check if user has connected bank
   const checkBankConnection = useCallback(async () => {
@@ -66,11 +68,20 @@ export default function DashboardPage() {
         throw new Error("Failed to fetch transactions");
       }
       const data = await response.json();
-      setTransactions(data.transactions);
-      setAccounts(data.accounts);
+      setTransactions(data.transactions || []);
+      setAccounts(data.accounts || []);
+
+      // Handle Plaid errors
+      if (data.errors && data.errors.length > 0) {
+        setPlaidErrors(data.errors);
+        setNeedsReauth(data.hasReauthRequired || false);
+      } else {
+        setPlaidErrors([]);
+        setNeedsReauth(false);
+      }
 
       // Analyze transactions
-      if (data.transactions.length > 0) {
+      if (data.transactions && data.transactions.length > 0) {
         const analysis = analyzeTransactions(data.transactions);
         setSnapshot(analysis);
       }
@@ -79,7 +90,24 @@ export default function DashboardPage() {
     }
   };
 
-  // Handle successful Plaid Link
+  // Fetch link token for update mode (reauth)
+  const fetchUpdateLinkToken = async () => {
+    try {
+      const response = await fetch("/api/plaid/link-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "update" }),
+      });
+      const data = await response.json();
+      if (data.link_token) {
+        setLinkToken(data.link_token);
+      }
+    } catch {
+      setError("Failed to initialize bank reconnection");
+    }
+  };
+
+  // Handle successful Plaid Link (both create and update modes)
   const onSuccess = useCallback(async (publicToken: string, metadata: PlaidLinkOnSuccessMetadata) => {
     try {
       const response = await fetch("/api/plaid/exchange", {
@@ -94,6 +122,10 @@ export default function DashboardPage() {
       if (response.ok) {
         setHasConnectedBank(true);
         setInstitutionName(metadata.institution?.name || null);
+        // Clear any previous errors after successful (re)connection
+        setPlaidErrors([]);
+        setNeedsReauth(false);
+        setError(null);
         await fetchTransactions();
       } else {
         setError("Failed to connect bank");
@@ -103,10 +135,26 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const [isReauthMode, setIsReauthMode] = useState(false);
+
+  // Handle reconnect button click
+  const handleReconnect = async () => {
+    setIsReauthMode(true);
+    await fetchUpdateLinkToken();
+  };
+
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess,
   });
+
+  // Auto-open Plaid Link when ready in reauth mode
+  useEffect(() => {
+    if (isReauthMode && ready && linkToken) {
+      open();
+      setIsReauthMode(false);
+    }
+  }, [isReauthMode, ready, linkToken, open]);
 
   // Handle logout
   const handleLogout = async () => {
@@ -166,9 +214,45 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 py-8">
+        {/* General error banner */}
         {error && (
           <div className="mb-4 p-3 bg-red-50 text-red-800 rounded-md text-sm">
             {error}
+          </div>
+        )}
+
+        {/* Plaid reauth warning banner */}
+        {needsReauth && plaidErrors.length > 0 && (
+          <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-md">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1">
+                <h3 className="font-medium text-amber-900">
+                  Bank connection needs attention
+                </h3>
+                <p className="text-sm text-amber-700 mt-1">
+                  {plaidErrors[0].institutionName
+                    ? `${plaidErrors[0].institutionName} requires you to re-authenticate.`
+                    : "Your bank requires you to log in again."}
+                </p>
+              </div>
+              <Button
+                onClick={handleReconnect}
+                size="sm"
+                className="bg-amber-600 hover:bg-amber-700"
+              >
+                Reconnect
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Temporary Plaid error banner (institution down, etc.) */}
+        {!needsReauth && plaidErrors.some((e) => e.isTemporary) && (
+          <div className="mb-4 p-3 bg-blue-50 text-blue-800 rounded-md text-sm">
+            {plaidErrors.find((e) => e.isTemporary)?.institutionName
+              ? `${plaidErrors.find((e) => e.isTemporary)?.institutionName} is temporarily unavailable.`
+              : "Your bank is temporarily unavailable."}{" "}
+            Data shown may be incomplete.
           </div>
         )}
 

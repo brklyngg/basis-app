@@ -68,3 +68,19 @@ export interface PlaidItem {
   created_at: string;
   updated_at: string;
 }
+
+export interface PlaidItemError {
+  itemId?: string;
+  institutionName: string | null;
+  errorCode: string;
+  errorMessage: string;
+  requiresReauth: boolean;
+  isTemporary: boolean;
+}
+
+export interface TransactionsResponse {
+  transactions: Transaction[];
+  accounts: Account[];
+  errors?: PlaidItemError[];
+  hasReauthRequired?: boolean;
+}
