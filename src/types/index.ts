@@ -59,6 +59,15 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
+// Database chat message (from Supabase)
+export interface DbChatMessage {
+  id: string;
+  user_id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
 export interface PlaidItem {
   id: string;
   user_id: string;

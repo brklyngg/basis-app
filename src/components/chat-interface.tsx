@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useEffect } from "react";
 import { useChat } from "@/hooks/use-chat";
 import { ChatMessage } from "@/components/chat-message";
 import { ChatInput } from "@/components/chat-input";
@@ -13,10 +14,16 @@ interface ChatInterfaceProps {
 }
 
 export function ChatInterface({ transactions, snapshot }: ChatInterfaceProps) {
-  const { messages, isLoading, error, sendMessage } = useChat({
+  const { messages, isLoading, isInitialLoading, error, sendMessage } = useChat({
     transactions,
     snapshot,
   });
+  const scrollAnchorRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when messages update (including during streaming)
+  useEffect(() => {
+    scrollAnchorRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   return (
     <Card className="h-[calc(100vh-12rem)] flex flex-col">
@@ -25,7 +32,11 @@ export function ChatInterface({ transactions, snapshot }: ChatInterfaceProps) {
       </CardHeader>
       <CardContent className="flex-1 flex flex-col p-0 overflow-hidden">
         <ScrollArea className="flex-1 p-4">
-          {messages.length === 0 ? (
+          {isInitialLoading ? (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-neutral-500 animate-pulse">Loading conversation...</div>
+            </div>
+          ) : messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center px-4">
               <div className="max-w-md space-y-4">
                 <p className="text-neutral-500">
@@ -52,6 +63,7 @@ export function ChatInterface({ transactions, snapshot }: ChatInterfaceProps) {
                   <div className="animate-pulse">Thinking...</div>
                 </div>
               )}
+              <div ref={scrollAnchorRef} />
             </div>
           )}
         </ScrollArea>

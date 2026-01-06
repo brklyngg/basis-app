@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
-import { plaidClient } from "@/lib/plaid";
 import { analyzeTransactions } from "@/lib/financial-analysis";
 import { buildFinancialContext } from "@/lib/context-builder";
 import { FINANCIAL_MAVEN_SYSTEM_PROMPT } from "@/lib/prompts";
-import type { Transaction } from "@/types";
+import type { Transaction, FinancialSnapshot } from "@/types";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -21,59 +20,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { message, conversationHistory } = await request.json();
+    const { message, conversationHistory, transactions, snapshot } = await request.json() as {
+      message: string;
+      conversationHistory?: Array<{ role: "user" | "assistant"; content: string }>;
+      transactions?: Transaction[];
+      snapshot?: FinancialSnapshot;
+    };
 
     if (!message) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
-    // Get user's Plaid items
-    const { data: plaidItems } = await supabase
-      .from("plaid_items")
-      .select("access_token")
-      .eq("user_id", user.id);
-
-    // Fetch transactions if user has connected accounts
+    // Build financial context from request data (already fetched by dashboard)
     let financialContext = "No bank account connected yet.";
 
-    if (plaidItems && plaidItems.length > 0) {
-      const allTransactions: Transaction[] = [];
-
-      // Calculate date range (last 90 days)
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - 90);
-      const formatDate = (date: Date) => date.toISOString().split("T")[0];
-
-      for (const item of plaidItems) {
-        try {
-          const response = await plaidClient.transactionsGet({
-            access_token: item.access_token,
-            start_date: formatDate(startDate),
-            end_date: formatDate(endDate),
-          });
-
-          const transactions = response.data.transactions.map((t) => ({
-            id: t.transaction_id,
-            date: t.date,
-            name: t.merchant_name || t.name,
-            amount: t.amount,
-            category: t.personal_finance_category?.primary || t.category?.[0] || "Other",
-            pending: t.pending,
-          }));
-
-          allTransactions.push(...transactions);
-        } catch (plaidError) {
-          console.error("Plaid error:", plaidError);
-        }
-      }
-
-      // Sort by date
-      allTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-      // Analyze and build context
-      const snapshot = analyzeTransactions(allTransactions);
-      financialContext = buildFinancialContext(allTransactions, snapshot);
+    if (transactions && Array.isArray(transactions) && transactions.length > 0 && snapshot) {
+      financialContext = buildFinancialContext(transactions, snapshot);
+    } else if (transactions && Array.isArray(transactions) && transactions.length > 0) {
+      // Fallback: compute snapshot if not provided
+      const computedSnapshot = analyzeTransactions(transactions);
+      financialContext = buildFinancialContext(transactions, computedSnapshot);
     }
 
     // Build messages for Claude
@@ -104,16 +70,41 @@ export async function POST(request: Request) {
           const response = await anthropic.messages.create({
             model: "claude-sonnet-4-20250514",
             max_tokens: 1024,
-            system: `${FINANCIAL_MAVEN_SYSTEM_PROMPT}\n\n=== USER'S FINANCIAL DATA ===\n${financialContext}`,
+            system: [
+              {
+                type: "text",
+                text: FINANCIAL_MAVEN_SYSTEM_PROMPT,
+                cache_control: { type: "ephemeral" },
+              },
+              {
+                type: "text",
+                text: `=== USER'S FINANCIAL DATA ===\n${financialContext}`,
+                cache_control: { type: "ephemeral" },
+              },
+            ],
             messages,
             stream: true,
           });
 
+          let fullAssistantResponse = "";
+
           for await (const event of response) {
             if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+              fullAssistantResponse += event.delta.text;
               const chunk = `data: ${JSON.stringify({ text: event.delta.text })}\n\n`;
               controller.enqueue(encoder.encode(chunk));
             }
+          }
+
+          // Save messages to database after streaming completes
+          try {
+            await supabase.from("chat_messages").insert([
+              { user_id: user.id, role: "user", content: message },
+              { user_id: user.id, role: "assistant", content: fullAssistantResponse },
+            ]);
+          } catch (saveError) {
+            console.error("Failed to save messages:", saveError);
+            // Don't fail the response if save fails - messages are already streamed
           }
 
           controller.enqueue(encoder.encode("data: [DONE]\n\n"));
