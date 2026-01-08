@@ -18,7 +18,7 @@ npm run start    # Start production server
 ## Tech Stack
 
 - **Framework:** Next.js 16, React 19, TypeScript
-- **Database/Auth:** Supabase (PostgreSQL + Auth with magic links)
+- **Database/Auth:** Supabase (PostgreSQL + Auth with email OTP)
 - **Banking:** Plaid API (transactions, account connections)
 - **AI:** Anthropic Claude (claude-sonnet-4) with prompt caching
 - **UI:** shadcn/ui, Tailwind CSS v4, Lucide icons
@@ -71,10 +71,12 @@ ChatInterface → /api/chat → Claude (with financial context) → Streaming re
 
 ### Authentication Flow
 
-1. Magic link login via Supabase Auth
-2. Callback handled at `/auth/callback` (client-side to handle hash tokens)
-3. Middleware (`middleware.ts`) protects `/dashboard`, redirects unauthenticated users
-4. Middleware excludes `/auth/callback` from protection
+1. User enters email on `/login` page
+2. Supabase sends 6-digit OTP code via email (configured in Supabase dashboard email templates)
+3. User enters code on same page, `verifyOtp()` exchanges it for session
+4. Redirect to `/dashboard` on success
+5. Middleware (`middleware.ts`) protects `/dashboard`, redirects unauthenticated users
+6. `/auth/callback` route handler exists for potential future OAuth flows
 
 ### Plaid Error Handling
 
