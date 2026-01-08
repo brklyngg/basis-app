@@ -39,7 +39,7 @@ export default function LoginPage() {
       setStep("otp");
       setMessage({
         type: "success",
-        text: "Check your email for a 6-digit code.",
+        text: "Check your email for a code.",
       });
     }
   };
@@ -101,15 +101,15 @@ export default function LoginPage() {
           ) : (
             <form onSubmit={handleVerifyCode} className="space-y-4">
               <div className="text-sm text-neutral-600 mb-2">
-                Enter the 6-digit code sent to <span className="font-medium">{email}</span>
+                Enter the code sent to <span className="font-medium">{email}</span>
               </div>
               <div>
                 <Input
                   type="text"
                   inputMode="numeric"
                   pattern="[0-9]*"
-                  maxLength={6}
-                  placeholder="000000"
+                  maxLength={8}
+                  placeholder="00000000"
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ""))}
                   required
@@ -117,7 +117,7 @@ export default function LoginPage() {
                   className="text-center text-2xl tracking-widest"
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={loading || otpCode.length !== 6}>
+              <Button type="submit" className="w-full" disabled={loading || otpCode.length < 6}>
                 {loading ? "Verifying..." : "Verify Code"}
               </Button>
               <button
