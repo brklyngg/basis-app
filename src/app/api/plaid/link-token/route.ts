@@ -47,6 +47,10 @@ export async function POST(request: Request) {
       ...(mode === "update" && accessToken
         ? { access_token: accessToken }
         : { products: PLAID_PRODUCTS }),
+      // Request 1 year of transaction history
+      transactions: {
+        days_requested: 365,
+      },
     };
 
     const response = await plaidClient.linkTokenCreate(linkTokenConfig);

@@ -14,7 +14,10 @@ export interface Account {
   subtype: string | null;
   balance: number | null;
   institution: string | null;
+  itemId?: string;
 }
+
+export type SyncStatus = "idle" | "syncing" | "ready" | "error";
 
 export interface CategoryBreakdown {
   category: string;
@@ -90,6 +93,7 @@ export interface PlaidItemError {
 export interface TransactionsResponse {
   transactions: Transaction[];
   accounts: Account[];
+  syncStatus: SyncStatus;
   errors?: PlaidItemError[];
   hasReauthRequired?: boolean;
 }

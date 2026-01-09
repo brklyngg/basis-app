@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { usePlaidLink, PlaidLinkOnSuccessMetadata } from "react-plaid-link";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChatInterface } from "@/components/chat-interface";
 import { FinancialSummary } from "@/components/financial-summary";
-import type { Transaction, Account, FinancialSnapshot, PlaidItemError } from "@/types";
+import type { Transaction, Account, FinancialSnapshot, PlaidItemError, SyncStatus } from "@/types";
 import { analyzeTransactions } from "@/lib/financial-analysis";
+
+const POLL_INTERVAL = 5000; // 5 seconds
+const MAX_POLL_ATTEMPTS = 12; // 60 seconds total
 
 export default function DashboardPage() {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [hasConnectedBank, setHasConnectedBank] = useState<boolean | null>(null);
-  const [institutionName, setInstitutionName] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [snapshot, setSnapshot] = useState<FinancialSnapshot | null>(null);
@@ -21,6 +23,22 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [plaidErrors, setPlaidErrors] = useState<PlaidItemError[]>([]);
   const [needsReauth, setNeedsReauth] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
+  const [dateRange, setDateRange] = useState(365);
+  const [isReauthMode, setIsReauthMode] = useState(false);
+  const [isAddingBank, setIsAddingBank] = useState(false);
+
+  const pollAttemptsRef = useRef(0);
+  const pollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollTimeoutRef.current) {
+        clearTimeout(pollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Check if user has connected bank
   const checkBankConnection = useCallback(async () => {
@@ -36,7 +54,6 @@ export default function DashboardPage() {
 
     if (plaidItems && plaidItems.length > 0) {
       setHasConnectedBank(true);
-      setInstitutionName(plaidItems[0].institution_name);
       await fetchTransactions();
     } else {
       setHasConnectedBank(false);
@@ -61,10 +78,14 @@ export default function DashboardPage() {
   };
 
   // Fetch transactions from connected accounts
-  const fetchTransactions = async () => {
+  const fetchTransactions = async (days: number = dateRange): Promise<SyncStatus> => {
     try {
-      const response = await fetch("/api/plaid/transactions");
+      const response = await fetch(`/api/plaid/transactions?days=${days}`);
       if (!response.ok) {
+        const errorData = await response.json();
+        if (response.status === 404 && errorData.error === "No connected accounts") {
+          return "ready";
+        }
         throw new Error("Failed to fetch transactions");
       }
       const data = await response.json();
@@ -80,15 +101,54 @@ export default function DashboardPage() {
         setNeedsReauth(false);
       }
 
-      // Analyze transactions
+      // Analyze transactions with date range
       if (data.transactions && data.transactions.length > 0) {
         const analysis = analyzeTransactions(data.transactions);
         setSnapshot(analysis);
+      } else {
+        setSnapshot(null);
       }
+
+      return data.syncStatus || "ready";
     } catch {
       setError("Failed to load transactions");
+      return "error";
     }
   };
+
+  // Poll for sync completion
+  const startPolling = useCallback(async () => {
+    pollAttemptsRef.current = 0;
+
+    const poll = async () => {
+      pollAttemptsRef.current++;
+      const status = await fetchTransactions();
+
+      if (status === "ready") {
+        setSyncStatus("ready");
+        pollAttemptsRef.current = 0;
+        return;
+      }
+
+      if (status === "error") {
+        setSyncStatus("error");
+        pollAttemptsRef.current = 0;
+        return;
+      }
+
+      if (pollAttemptsRef.current >= MAX_POLL_ATTEMPTS) {
+        setSyncStatus("error");
+        setError("Taking longer than expected. Please try refreshing the page.");
+        pollAttemptsRef.current = 0;
+        return;
+      }
+
+      // Continue polling
+      pollTimeoutRef.current = setTimeout(poll, POLL_INTERVAL);
+    };
+
+    await poll();
+  }, [dateRange]);
 
   // Fetch link token for update mode (reauth)
   const fetchUpdateLinkToken = async () => {
@@ -121,21 +181,21 @@ export default function DashboardPage() {
 
       if (response.ok) {
         setHasConnectedBank(true);
-        setInstitutionName(metadata.institution?.name || null);
-        // Clear any previous errors after successful (re)connection
         setPlaidErrors([]);
         setNeedsReauth(false);
         setError(null);
-        await fetchTransactions();
+        setIsAddingBank(false);
+
+        // Start syncing
+        setSyncStatus("syncing");
+        startPolling();
       } else {
         setError("Failed to connect bank");
       }
     } catch {
       setError("Failed to connect bank");
     }
-  }, []);
-
-  const [isReauthMode, setIsReauthMode] = useState(false);
+  }, [startPolling]);
 
   // Handle reconnect button click
   const handleReconnect = async () => {
@@ -143,18 +203,24 @@ export default function DashboardPage() {
     await fetchUpdateLinkToken();
   };
 
+  // Handle add another bank
+  const handleAddBank = async () => {
+    setIsAddingBank(true);
+    await fetchLinkToken();
+  };
+
   const { open, ready } = usePlaidLink({
     token: linkToken,
     onSuccess,
   });
 
-  // Auto-open Plaid Link when ready in reauth mode
+  // Auto-open Plaid Link when ready in reauth mode or adding bank
   useEffect(() => {
-    if (isReauthMode && ready && linkToken) {
+    if ((isReauthMode || isAddingBank) && ready && linkToken) {
       open();
-      setIsReauthMode(false);
+      if (isReauthMode) setIsReauthMode(false);
     }
-  }, [isReauthMode, ready, linkToken, open]);
+  }, [isReauthMode, isAddingBank, ready, linkToken, open]);
 
   // Handle logout
   const handleLogout = async () => {
@@ -163,23 +229,49 @@ export default function DashboardPage() {
     window.location.href = "/login";
   };
 
-  // Handle disconnect bank
-  const handleDisconnect = async () => {
+  // Handle disconnect bank (optionally by item_id)
+  const handleDisconnect = async (itemId?: string) => {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
-    if (user) {
+    if (!user) return;
+
+    if (itemId) {
+      // Disconnect specific institution
+      await supabase
+        .from("plaid_items")
+        .delete()
+        .eq("user_id", user.id)
+        .eq("item_id", itemId);
+    } else {
+      // Disconnect all
       await supabase
         .from("plaid_items")
         .delete()
         .eq("user_id", user.id);
+    }
 
+    // Refresh data
+    const { data: remainingItems } = await supabase
+      .from("plaid_items")
+      .select("id")
+      .eq("user_id", user.id);
+
+    if (!remainingItems || remainingItems.length === 0) {
       setHasConnectedBank(false);
       setTransactions([]);
       setAccounts([]);
       setSnapshot(null);
       await fetchLinkToken();
+    } else {
+      await fetchTransactions();
     }
+  };
+
+  // Handle date range change
+  const handleDateRangeChange = async (days: number) => {
+    setDateRange(days);
+    await fetchTransactions(days);
   };
 
   useEffect(() => {
@@ -200,16 +292,9 @@ export default function DashboardPage() {
       <header className="border-b bg-white">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold">Basis</h1>
-          <div className="flex items-center gap-4">
-            {hasConnectedBank && institutionName && (
-              <span className="text-sm text-neutral-500">
-                Connected: {institutionName}
-              </span>
-            )}
-            <Button variant="outline" size="sm" onClick={handleLogout}>
-              Sign out
-            </Button>
-          </div>
+          <Button variant="outline" size="sm" onClick={handleLogout}>
+            Sign out
+          </Button>
         </div>
       </header>
 
@@ -289,7 +374,11 @@ export default function DashboardPage() {
               <FinancialSummary
                 snapshot={snapshot}
                 accounts={accounts}
+                syncStatus={syncStatus}
+                dateRange={dateRange}
+                onDateRangeChange={handleDateRangeChange}
                 onDisconnect={handleDisconnect}
+                onAddBank={handleAddBank}
               />
             </div>
 
