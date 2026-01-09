@@ -30,7 +30,7 @@ npm run start    # Start production server
 ```
 User → Plaid Link → /api/plaid/exchange → Supabase (plaid_items)
                                               ↓
-Dashboard ← /api/plaid/transactions ← Plaid transactionsGet
+Dashboard ← /api/plaid/transactions ← Plaid transactionsSync
     ↓
 analyzeTransactions() → FinancialSnapshot
     ↓
@@ -103,3 +103,14 @@ PLAID_SECRET=
 PLAID_ENV=development|sandbox|production
 ANTHROPIC_API_KEY=
 ```
+
+## Git Workflow
+
+Always push commits to remote after committing (Vercel auto-deploys from main).
+
+## Plaid API Docs
+
+Key references for the Plaid integration:
+- [/transactions/sync](https://plaid.com/docs/api/products/transactions/#transactionssync) - Uses `transactions_update_status` field, cursor-based pagination
+- [Webhooks](https://plaid.com/docs/transactions/webhooks/) - `SYNC_UPDATES_AVAILABLE` for real-time updates
+- [Errors](https://plaid.com/docs/errors/transactions/) - `PRODUCT_NOT_READY`, `ITEM_LOGIN_REQUIRED`, etc.
