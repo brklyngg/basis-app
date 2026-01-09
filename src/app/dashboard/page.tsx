@@ -24,7 +24,6 @@ export default function DashboardPage() {
   const [plaidErrors, setPlaidErrors] = useState<PlaidItemError[]>([]);
   const [needsReauth, setNeedsReauth] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("idle");
-  const [dateRange, setDateRange] = useState(365);
   const [isReauthMode, setIsReauthMode] = useState(false);
   const [isAddingBank, setIsAddingBank] = useState(false);
 
@@ -78,9 +77,9 @@ export default function DashboardPage() {
   };
 
   // Fetch transactions from connected accounts
-  const fetchTransactions = async (days: number = dateRange): Promise<SyncStatus> => {
+  const fetchTransactions = async (): Promise<SyncStatus> => {
     try {
-      const response = await fetch(`/api/plaid/transactions?days=${days}`);
+      const response = await fetch("/api/plaid/transactions");
       if (!response.ok) {
         const errorData = await response.json();
         if (response.status === 404 && errorData.error === "No connected accounts") {
@@ -148,7 +147,7 @@ export default function DashboardPage() {
     };
 
     await poll();
-  }, [dateRange]);
+  }, []);
 
   // Fetch link token for update mode (reauth)
   const fetchUpdateLinkToken = async () => {
@@ -268,12 +267,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Handle date range change
-  const handleDateRangeChange = async (days: number) => {
-    setDateRange(days);
-    await fetchTransactions(days);
-  };
-
   useEffect(() => {
     checkBankConnection();
   }, [checkBankConnection]);
@@ -375,8 +368,6 @@ export default function DashboardPage() {
                 snapshot={snapshot}
                 accounts={accounts}
                 syncStatus={syncStatus}
-                dateRange={dateRange}
-                onDateRangeChange={handleDateRangeChange}
                 onDisconnect={handleDisconnect}
                 onAddBank={handleAddBank}
               />

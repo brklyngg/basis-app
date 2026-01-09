@@ -22,11 +22,6 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Parse days query param for client-side filtering (default 365)
-    const url = new URL(request.url);
-    const daysParam = url.searchParams.get("days");
-    const filterDays = daysParam ? parseInt(daysParam, 10) : 365;
-
     // Get user's Plaid items
     const { data: plaidItems, error: dbError } = await supabase
       .from("plaid_items")
@@ -46,11 +41,6 @@ export async function GET(request: Request) {
     const allAccounts: Account[] = [];
     const itemErrors: PlaidItemError[] = [];
     let overallSyncStatus: SyncStatus = "ready";
-
-    // Calculate filter date for client-side filtering
-    const filterDate = new Date();
-    filterDate.setDate(filterDate.getDate() - filterDays);
-    const filterDateStr = filterDate.toISOString().split("T")[0];
 
     for (const item of plaidItems) {
       try {
@@ -161,14 +151,11 @@ export async function GET(request: Request) {
       }
     }
 
-    // Filter transactions by date range (client-side filtering)
-    const filteredTransactions = allTransactions.filter((t) => t.date >= filterDateStr);
-
     // Sort by date (most recent first)
-    filteredTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    allTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const responseData: TransactionsResponse = {
-      transactions: filteredTransactions,
+      transactions: allTransactions,
       accounts: allAccounts,
       syncStatus: overallSyncStatus,
     };

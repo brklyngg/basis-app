@@ -3,21 +3,12 @@
 import { Loader2, Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type { Account, FinancialSnapshot, SyncStatus } from "@/types";
 
 interface FinancialSummaryProps {
   snapshot: FinancialSnapshot | null;
   accounts: Account[];
   syncStatus: SyncStatus;
-  dateRange: number;
-  onDateRangeChange: (days: number) => void;
   onDisconnect: (itemId?: string) => void;
   onAddBank: () => void;
 }
@@ -26,8 +17,6 @@ export function FinancialSummary({
   snapshot,
   accounts,
   syncStatus,
-  dateRange,
-  onDateRangeChange,
   onDisconnect,
   onAddBank,
 }: FinancialSummaryProps) {
@@ -36,6 +25,14 @@ export function FinancialSummary({
       style: "currency",
       currency: "USD",
     }).format(amount);
+  };
+
+  const formatDate = (dateStr: string) => {
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   };
 
   // Group accounts by institution
@@ -51,16 +48,6 @@ export function FinancialSummary({
   // Calculate total balance
   const totalBalance = accounts.reduce((sum, acc) => sum + (acc.balance || 0), 0);
 
-  const dateRangeLabel = (days: number) => {
-    switch (days) {
-      case 30: return "30 days";
-      case 90: return "90 days";
-      case 180: return "6 months";
-      case 365: return "1 year";
-      default: return `${days} days`;
-    }
-  };
-
   return (
     <div className="space-y-4">
       {/* Accounts Card */}
@@ -69,20 +56,11 @@ export function FinancialSummary({
           <CardTitle className="text-sm font-medium text-neutral-500">
             Connected Accounts
           </CardTitle>
-          <Select
-            value={String(dateRange)}
-            onValueChange={(v) => onDateRangeChange(Number(v))}
-          >
-            <SelectTrigger className="w-24 h-7 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="30">30 days</SelectItem>
-              <SelectItem value="90">90 days</SelectItem>
-              <SelectItem value="180">6 months</SelectItem>
-              <SelectItem value="365">1 year</SelectItem>
-            </SelectContent>
-          </Select>
+          {snapshot?.dateRange && (
+            <span className="text-xs text-neutral-400">
+              {formatDate(snapshot.dateRange.start)} – {formatDate(snapshot.dateRange.end)}
+            </span>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Syncing State */}
@@ -157,7 +135,7 @@ export function FinancialSummary({
         <Card>
           <CardHeader className="py-4">
             <CardTitle className="text-sm font-medium text-neutral-500">
-              {dateRangeLabel(dateRange)} Summary
+              {snapshot.dateRange.days} Day Summary
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
