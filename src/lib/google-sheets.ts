@@ -2478,12 +2478,12 @@ function buildDashboardFormattingRequests(
   const requests: sheets_v4.Schema$Request[] = [];
   const columnCount = 6; // 6 columns: A through F (expanded for SPARKLINE trend charts)
 
-  // 1. Freeze title row and first column for navigation
+  // 1. Freeze title row only (no frozen columns - allows section header merges)
   requests.push({
     updateSheetProperties: {
       properties: {
         sheetId,
-        gridProperties: { frozenRowCount: 1, frozenColumnCount: 1 },
+        gridProperties: { frozenRowCount: 1, frozenColumnCount: 0 },
       },
       fields: "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
     },
