@@ -16,8 +16,8 @@
         "Add unit tests in /src/lib/__tests__/financial-metrics.test.ts"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented with Vitest test framework (9 tests passing)"
     },
     {
       "id": "US-002",
@@ -32,8 +32,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented with TrendMetrics interface and 10 new unit tests (total 19 tests passing)"
     },
     {
       "id": "US-003",

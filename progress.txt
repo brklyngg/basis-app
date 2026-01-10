@@ -71,4 +71,57 @@ The spreadsheet must include internal checks that tie to bank reality:
 
 This ensures the user knows they're working with complete, accurate data.
 
+### Testing Framework
+- Vitest configured in `vitest.config.ts`
+- Tests in `/src/lib/__tests__/` directory
+- Run tests: `npm test`
+- Run in watch mode: `npm test:watch`
+- Path alias `@/` configured for imports
+
+---
+
+## 2025-01-09 23:23 - US-001
+- What was implemented:
+  - Created `/src/lib/financial-metrics.ts` with `calculateCoreMetrics()` function
+  - Added `FinancialMetrics` interface to `/src/types/index.ts`
+  - Installed Vitest and configured testing framework
+  - Created 9 unit tests covering all acceptance criteria
+
+- Files changed:
+  - `package.json` - Added test scripts and vitest dependency
+  - `package-lock.json` - Updated dependencies
+  - `vitest.config.ts` - New Vitest configuration with path aliases
+  - `src/types/index.ts` - Added FinancialMetrics interface
+  - `src/lib/financial-metrics.ts` - New calculateCoreMetrics function
+  - `src/lib/__tests__/financial-metrics.test.ts` - 9 unit tests
+
+- **Learnings for future iterations:**
+  - The existing transaction classifier checks for negative amounts (income) BEFORE checking for internal transfers. This means incoming transfer legs are classified as income, not as internal_transfer.
+  - Only OUTGOING transfers (positive amounts) and OUTGOING CC payments (positive amounts from depository accounts) are properly excluded by the classifier.
+  - Vitest works well with Next.js - just configure path aliases in vitest.config.ts to match tsconfig.
+  - Use `Math.abs()` for Plaid amounts - income is negative (money coming in), expenses are positive (money going out).
+
+---
+
+## 2025-01-09 23:28 - US-002
+- What was implemented:
+  - Added `TrendMetrics`, `TrendDirection`, and `MonthlyCashFlow` interfaces to `/src/types/index.ts`
+  - Added `calculateTrendMetrics()` function to `/src/lib/financial-metrics.ts`
+  - Function calculates month-over-month change in net cash flow
+  - Function calculates 3-month moving average
+  - Returns trend direction: 'improving' | 'stable' | 'declining' based on 5% threshold
+  - Returns percentage change from prior period
+  - Created 10 new unit tests for trend metrics (total 19 tests passing)
+
+- Files changed:
+  - `src/types/index.ts` - Added TrendMetrics, TrendDirection, MonthlyCashFlow interfaces
+  - `src/lib/financial-metrics.ts` - Added calculateTrendMetrics() and helper functions
+  - `src/lib/__tests__/financial-metrics.test.ts` - Added 10 new test cases for trend metrics
+
+- **Learnings for future iterations:**
+  - Internal transfer detection requires a MATCHING PAIR of transactions with opposite signs (one positive leaving account A, one negative arriving in account B) within a 3-day window
+  - Single-sided transfers (only the OUT or only the IN) won't be classified as internal_transfer
+  - The 5% stability threshold is reasonable for MoM trend detection - smaller changes are "stable"
+  - Edge case: When prior month net cash flow is zero, use 100/-100 as percentage change indicator
+
 ---

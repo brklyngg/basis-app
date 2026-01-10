@@ -206,3 +206,32 @@ export interface FinancialMetrics {
     end: string;
   };
 }
+
+// Trend direction for financial metrics over time
+export type TrendDirection = "improving" | "stable" | "declining";
+
+// Monthly cash flow data for trend calculations
+export interface MonthlyCashFlow {
+  month: string; // YYYY-MM format
+  income: number;
+  expenses: number;
+  netCashFlow: number;
+}
+
+// Trend metrics for analyzing financial trajectory
+export interface TrendMetrics {
+  // Direction of financial health
+  trendDirection: TrendDirection;
+
+  // Month-over-month change (most recent vs prior month)
+  momChange: {
+    amount: number; // absolute change in net cash flow
+    percentageChange: number; // percentage change from prior period
+  };
+
+  // 3-month moving average of net cash flow
+  threeMonthMovingAverage: number;
+
+  // Monthly data for trend analysis
+  monthlyData: MonthlyCashFlow[];
+}

@@ -2,6 +2,9 @@ import type {
   Transaction,
   Account,
   FinancialMetrics,
+  TrendMetrics,
+  TrendDirection,
+  MonthlyCashFlow,
 } from "@/types";
 import { classifyAllTransactions, getCashFlowTransactions } from "./transaction-classifier";
 
@@ -89,5 +92,141 @@ export function calculateCoreMetrics(
       start: startDate,
       end: endDate,
     },
+  };
+}
+
+/**
+ * Calculate monthly cash flows from transactions
+ *
+ * Groups transactions by month and calculates income, expenses, and net cash flow
+ * for each month. Returns sorted by month ascending.
+ */
+function calculateMonthlyCashFlows(
+  transactions: Transaction[],
+  accounts: Account[]
+): MonthlyCashFlow[] {
+  // Classify all transactions
+  const classified = classifyAllTransactions(transactions, accounts);
+
+  // Get only cash flow relevant transactions (excludes transfers and CC payments)
+  const cashFlowTransactions = getCashFlowTransactions(classified);
+
+  // Group by month
+  const monthlyMap = new Map<string, { income: number; expenses: number }>();
+
+  for (const t of cashFlowTransactions) {
+    const month = getMonthKey(t.date);
+    const current = monthlyMap.get(month) || { income: 0, expenses: 0 };
+
+    if (t.classification === "income") {
+      current.income += Math.abs(t.amount);
+    } else if (
+      t.classification === "expense_essential" ||
+      t.classification === "expense_discretionary"
+    ) {
+      current.expenses += t.amount;
+    }
+
+    monthlyMap.set(month, current);
+  }
+
+  // Convert to array and sort by month ascending
+  const monthlyData: MonthlyCashFlow[] = [];
+  for (const [month, data] of monthlyMap) {
+    monthlyData.push({
+      month,
+      income: data.income,
+      expenses: data.expenses,
+      netCashFlow: data.income - data.expenses,
+    });
+  }
+
+  monthlyData.sort((a, b) => a.month.localeCompare(b.month));
+
+  return monthlyData;
+}
+
+/**
+ * Determine trend direction based on percentage change
+ *
+ * - improving: >5% increase in net cash flow
+ * - declining: >5% decrease in net cash flow
+ * - stable: within +/- 5%
+ */
+function determineTrendDirection(percentageChange: number): TrendDirection {
+  const STABILITY_THRESHOLD = 5; // 5% threshold
+
+  if (percentageChange > STABILITY_THRESHOLD) {
+    return "improving";
+  } else if (percentageChange < -STABILITY_THRESHOLD) {
+    return "declining";
+  }
+  return "stable";
+}
+
+/**
+ * Calculate 3-month moving average of net cash flow
+ *
+ * Takes the most recent 3 months of data and calculates the average.
+ * If fewer than 3 months, averages what's available.
+ */
+function calculateThreeMonthMovingAverage(monthlyData: MonthlyCashFlow[]): number {
+  if (monthlyData.length === 0) {
+    return 0;
+  }
+
+  // Take up to the last 3 months
+  const recentMonths = monthlyData.slice(-3);
+  const sum = recentMonths.reduce((acc, m) => acc + m.netCashFlow, 0);
+  return sum / recentMonths.length;
+}
+
+/**
+ * Calculate trend metrics from transactions
+ *
+ * Analyzes month-over-month changes in net cash flow and determines
+ * if finances are improving, stable, or declining.
+ */
+export function calculateTrendMetrics(
+  transactions: Transaction[],
+  accounts: Account[]
+): TrendMetrics {
+  const monthlyData = calculateMonthlyCashFlows(transactions, accounts);
+
+  // Default values if insufficient data
+  let momChangeAmount = 0;
+  let momPercentageChange = 0;
+
+  // Calculate month-over-month change if we have at least 2 months
+  if (monthlyData.length >= 2) {
+    const currentMonth = monthlyData[monthlyData.length - 1];
+    const priorMonth = monthlyData[monthlyData.length - 2];
+
+    momChangeAmount = currentMonth.netCashFlow - priorMonth.netCashFlow;
+
+    // Calculate percentage change (avoid division by zero)
+    if (priorMonth.netCashFlow !== 0) {
+      momPercentageChange = (momChangeAmount / Math.abs(priorMonth.netCashFlow)) * 100;
+    } else if (currentMonth.netCashFlow > 0) {
+      // Prior was zero, current is positive = infinite improvement
+      momPercentageChange = 100;
+    } else if (currentMonth.netCashFlow < 0) {
+      // Prior was zero, current is negative = infinite decline
+      momPercentageChange = -100;
+    }
+    // If both are zero, percentage change stays 0
+  }
+
+  const threeMonthMovingAverage = calculateThreeMonthMovingAverage(monthlyData);
+  const trendDirection = determineTrendDirection(momPercentageChange);
+
+  return {
+    trendDirection,
+    momChange: {
+      amount: momChangeAmount,
+      percentageChange: momPercentageChange,
+    },
+    threeMonthMovingAverage,
+    monthlyData,
   };
 }
