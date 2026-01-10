@@ -3227,12 +3227,17 @@ function buildSummaryData(statement: FinancialStatement): (string | number)[][] 
 
 /**
  * Build transactions sheet data (raw transaction list)
+ * This is the source data for all formula references across the spreadsheet
+ *
+ * Columns: Date, Description, Amount, Category, Account, Classification
+ * - Sorted by date (most recent first)
+ * - Classification marks excluded transactions (internal_transfer, credit_card_payment)
  */
 function buildTransactionsData(transactions: ClassifiedTransaction[]): (string | number)[][] {
   const data: (string | number)[][] = [];
 
-  // Header row
-  data.push(["Date", "Description", "Amount", "Category", "Classification", "Month"]);
+  // Header row - Account column added per US-012 requirements
+  data.push(["Date", "Description", "Amount", "Category", "Account", "Classification"]);
 
   // Sort transactions by date (most recent first)
   const sorted = [...transactions].sort(
@@ -3246,8 +3251,8 @@ function buildTransactionsData(transactions: ClassifiedTransaction[]): (string |
       t.name,
       t.amount,
       t.category,
+      t.accountId,  // Account ID for cross-referencing
       t.classification,
-      t.date.substring(0, 7), // Month in YYYY-MM format
     ]);
   }
 
@@ -3648,13 +3653,19 @@ function buildDetailedFormattingRequests(
 
 /**
  * Build formatting requests for the transactions sheet
+ * Features:
+ * - Frozen header row for navigation
+ * - Filter views enabled on all columns
+ * - Currency formatting for Amount column
+ * - Alternating row colors for readability
+ * - Excluded transactions (transfers, CC payments) visible in Classification column
  */
 function buildTransactionsFormattingRequests(
   sheetId: number,
   rowCount: number
 ): sheets_v4.Schema$Request[] {
   const requests: sheets_v4.Schema$Request[] = [];
-  const columnCount = 6; // Date, Description, Amount, Category, Classification, Month
+  const columnCount = 6; // Date, Description, Amount, Category, Account, Classification
 
   // 1. Freeze header row
   requests.push({
@@ -3686,7 +3697,22 @@ function buildTransactionsFormattingRequests(
     },
   });
 
-  // 3. Currency format for Amount column (C)
+  // 3. Enable filter views on header row for easy data filtering
+  requests.push({
+    setBasicFilter: {
+      filter: {
+        range: {
+          sheetId,
+          startRowIndex: 0,
+          endRowIndex: rowCount,
+          startColumnIndex: 0,
+          endColumnIndex: columnCount,
+        },
+      },
+    },
+  });
+
+  // 4. Currency format for Amount column (C - index 2)
   requests.push({
     repeatCell: {
       range: {
@@ -3704,7 +3730,7 @@ function buildTransactionsFormattingRequests(
     },
   });
 
-  // 4. Alternating row colors
+  // 5. Alternating row colors for readability
   requests.push({
     addConditionalFormatRule: {
       rule: {
@@ -3727,7 +3753,58 @@ function buildTransactionsFormattingRequests(
     },
   });
 
-  // 5. Auto-resize columns
+  // 6. Conditional formatting to highlight excluded transactions
+  // Internal transfers - light yellow background
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: 1,
+          endRowIndex: rowCount,
+          startColumnIndex: 0,
+          endColumnIndex: columnCount,
+        }],
+        booleanRule: {
+          condition: {
+            type: "CUSTOM_FORMULA",
+            values: [{ userEnteredValue: '=$F2="internal_transfer"' }],
+          },
+          format: {
+            backgroundColor: { red: 1, green: 0.98, blue: 0.85 }, // Light yellow
+          },
+        },
+      },
+      index: 0,
+    },
+  });
+
+  // Credit card payments - light blue background
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: 1,
+          endRowIndex: rowCount,
+          startColumnIndex: 0,
+          endColumnIndex: columnCount,
+        }],
+        booleanRule: {
+          condition: {
+            type: "CUSTOM_FORMULA",
+            values: [{ userEnteredValue: '=$F2="credit_card_payment"' }],
+          },
+          format: {
+            backgroundColor: { red: 0.88, green: 0.94, blue: 1 }, // Light blue
+          },
+        },
+      },
+      index: 0,
+    },
+  });
+
+  // 7. Auto-resize columns
   requests.push({
     autoResizeDimensions: {
       dimensions: {
