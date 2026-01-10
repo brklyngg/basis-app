@@ -13,6 +13,8 @@ npm run dev      # Start development server (localhost:3000)
 npm run build    # Production build
 npm run lint     # Run ESLint
 npm run start    # Start production server
+npm run typecheck # TypeScript type checking
+npm test         # Run Vitest unit tests
 ```
 
 ## Tech Stack
@@ -94,31 +96,38 @@ The app distinguishes between:
 
 ### Financial Statement Export (Google Sheets)
 
-**Purpose**: Export analyst-grade financial statements to Google Sheets with proper handling of:
-- Internal transfers (excluded from cash flow)
-- Credit card payments (avoids double-counting with CC spending)
-- Monthly aggregation with income, essential expenses, discretionary expenses
-- Net cash flow and savings rate calculations
+**Purpose**: Export professional 3-statement financial model to Google Sheets with:
+- Transaction classification (income, essential, discretionary, transfers, CC payments)
+- Proper exclusion of internal transfers and CC payments to avoid double-counting
+- AI-generated financial insights via Claude
+- SPARKLINE trend charts and named ranges for extensibility
 
-**New API Routes** (`src/app/api/`):
+**API Routes** (`src/app/api/`):
 - `auth/google/route.ts` - Initiate Google OAuth flow
 - `auth/google/callback/route.ts` - Handle OAuth callback, store tokens
-- `export/sheets/route.ts` - Generate and create Google Sheets spreadsheet
+- `export/sheets/route.ts` - Generate 5-tab spreadsheet with metrics and insights
 
-**New Core Logic** (`src/lib/`):
-- `transaction-classifier.ts` - Classify transactions (income, essential, discretionary, transfer, CC payment)
+**Core Export Logic** (`src/lib/`):
+- `transaction-classifier.ts` - Classify transactions (6 types: income, expense_essential, expense_discretionary, internal_transfer, credit_card_payment, excluded)
 - `financial-statement.ts` - Build monthly aggregated financial statements
-- `google-sheets.ts` - Create professionally formatted Google Sheets with batchUpdate API
+- `financial-metrics.ts` - Calculate core metrics, trends, category breakdowns, balance sheet
+- `insights-generator.ts` - Generate 4-6 AI insights via Claude API
+- `google-sheets.ts` - Create 5-tab spreadsheet with professional formatting
 
-**New Database Table**:
+**Database Table**:
 - `google_tokens` - Stores Google OAuth tokens (access_token, refresh_token, expires_at)
 
 **UI Component**:
 - `src/components/export-dialog.tsx` - Export modal with date range selection and Google OAuth flow
 
-**Google Sheets Output Structure**:
-- **Summary sheet**: Income, Essential Expenses, Discretionary Expenses, Net Cash Flow, Savings Rate by month
-- **Detailed Categories sheet**: All Plaid categories with monthly breakdowns
+**Google Sheets Output (5 Tabs)**:
+1. **Dashboard** - Executive summary with Big Picture, Key Ratios, Spending Breakdown, AI Insights, SPARKLINE charts
+2. **Income Statement** - P&L format with monthly columns, NET INCOME calculation
+3. **Balance Sheet** - Assets (depository accounts), Liabilities (credit cards), Net Worth
+4. **Cash Flow** - Operating/Financing sections, Beginning/Ending Cash reconciliation
+5. **Transactions** - Raw transaction data with Classification column (source for all formulas)
+
+**Named Ranges**: TotalIncome, TotalExpenses, NetCashFlow, SavingsRate, TransactionData
 
 **Environment Variables Required**:
 ```
@@ -202,39 +211,9 @@ const FINANCIAL_COLORS = {
 4. **Verification:** After writing to a sheet, verify using `sheets_read_range` or browser screenshot
 5. **Token efficiency:** Pull specific ranges rather than entire sheets
 
-### Sheet Organization Standard
+### Testing
 
-```
-Tab 1: Dashboard       - Executive summary (formula-driven, references other sheets)
-Tab 2: Income Statement - P&L format with monthly columns
-Tab 3: Balance Sheet    - Assets, Liabilities, Net Worth
-Tab 4: Cash Flow        - Sources and Uses format
-Tab 5: Transactions     - Raw data source (all formulas reference this)
-```
-
-### Export Quality Checklist
-
-Before completing any export enhancement:
-- [ ] Blue text for all hard-coded inputs
-- [ ] Black text for same-sheet formulas
-- [ ] Green text for cross-sheet references
-- [ ] Headers frozen for navigation
-- [ ] Named ranges created for key metrics
-- [ ] All Dashboard values are formula-driven (not hard-coded)
-- [ ] Balance sheet balances (Assets = Liabilities + Equity)
-- [ ] Conditional formatting for positive/negative values
-- [ ] Professional number formatting (currency, percentages)
-
-### MCP Session Management
-
-If context becomes cluttered during long Google Sheets sessions:
-- `/context` - Check context window usage
-- `/clear` + read key files - Reset while maintaining CLAUDE.md instructions
-- `/mcp list` - Verify Google Drive MCP tools are available
-
-### Financial Modeling Standard Sources
-
-- [Wall Street Prep: Financial Modeling Best Practices](https://www.wallstreetprep.com/knowledge/financial-modeling-best-practices/)
-- [Breaking Into Wall Street: Excel Best Practices](https://breakingintowallstreet.com/kb/finance/financial-modeling-best-practices/)
-- [Macabacus: Model Readability](https://macabacus.com/blog/improving-model-readability-with-color-formatting)
-- [Corporate Finance Institute: Model Documentation](https://corporatefinanceinstitute.com/resources/excel/documenting-excel-models-best-practices/)
+Unit tests use Vitest with path alias support:
+- Tests in `src/lib/__tests__/`
+- Run: `npm test` or `npm run test:watch`
+- 50+ tests covering financial metrics, trends, category breakdown, balance sheet calculations
