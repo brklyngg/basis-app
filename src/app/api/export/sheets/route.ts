@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { plaidClient, PLAID_REAUTH_ERRORS, PLAID_TEMPORARY_ERRORS } from "@/lib/plaid";
 import { buildFinancialStatement, calculateDateRange } from "@/lib/financial-statement";
 import { createFinancialSpreadsheet, refreshTokensIfNeeded } from "@/lib/google-sheets";
+import { classifyAllTransactions } from "@/lib/transaction-classifier";
 import type { Transaction, Account } from "@/types";
 
 interface ExportRequest {
@@ -92,7 +93,9 @@ export async function POST(request: Request) {
 
     for (const item of plaidItems) {
       try {
-        let cursor = item.sync_cursor || undefined;
+        // Always use empty cursor to fetch ALL historical transactions
+        // Per Plaid docs: cursor: "" returns all transactions as "adds"
+        let cursor: string | undefined = "";
         let hasMore = true;
         let accountsFetched = false;
 
@@ -145,13 +148,8 @@ export async function POST(request: Request) {
           hasMore = data.has_more;
         }
 
-        // Update cursor
-        if (cursor && cursor !== item.sync_cursor) {
-          await supabase
-            .from("plaid_items")
-            .update({ sync_cursor: cursor, updated_at: new Date().toISOString() })
-            .eq("id", item.id);
-        }
+        // Note: We intentionally don't update the sync_cursor here since we always
+        // want to fetch all historical transactions for export purposes.
       } catch (error) {
         const plaidError = error as PlaidApiError;
         const errorCode = plaidError.response?.data?.error_code || "UNKNOWN_ERROR";
@@ -178,6 +176,9 @@ export async function POST(request: Request) {
       endDate = endDate || range.end;
     }
 
+    // Classify all transactions
+    const classifiedTransactions = classifyAllTransactions(allTransactions, allAccounts);
+
     // Build financial statement
     const statement = buildFinancialStatement(
       allTransactions,
@@ -186,8 +187,8 @@ export async function POST(request: Request) {
       endDate
     );
 
-    // Create Google Sheets spreadsheet
-    const result = await createFinancialSpreadsheet(accessToken, statement);
+    // Create Google Sheets spreadsheet with raw transaction data
+    const result = await createFinancialSpreadsheet(accessToken, statement, classifiedTransactions);
 
     return NextResponse.json({
       success: true,

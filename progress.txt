@@ -53,4 +53,22 @@ Use FINANCIAL_COLORS constants in google-sheets.ts for consistent application.
 - `/mcp list` - Verify Google Drive MCP is connected
 - After writing to sheets, verify with `sheets_read_range` or browser screenshot
 
+### Reconciliation Requirements (CRITICAL)
+The spreadsheet must include internal checks that tie to bank reality:
+
+1. **Account Balance Proof** (in Balance Sheet or Dashboard)
+   - Show current Plaid balance for each account
+   - Compare against calculated values
+   - Flag any discrepancy
+
+2. **Transaction Count Check**
+   - Total transactions in Transactions sheet
+   - Breakdown by classification (should sum to total)
+
+3. **Cash Flow Proof Formula**
+   - Beginning Cash + Net Income - CC Payments = Ending Cash
+   - Ending Cash should match current depository balances from Plaid
+
+This ensures the user knows they're working with complete, accurate data.
+
 ---

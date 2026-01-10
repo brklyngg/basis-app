@@ -1,5 +1,5 @@
 import { google, sheets_v4 } from "googleapis";
-import type { FinancialStatement, MonthlyFinancials } from "@/types";
+import type { FinancialStatement, MonthlyFinancials, ClassifiedTransaction } from "@/types";
 import { formatMonthDisplay } from "./financial-statement";
 
 // Professional color palette for financial statements
@@ -205,6 +205,35 @@ function buildSummaryData(statement: FinancialStatement): (string | number)[][] 
     months.reduce((sum, m) => sum + m.transfers.creditCardPayments, 0),
     months.reduce((sum, m) => sum + m.transfers.creditCardPayments, 0) / months.length,
   ]);
+
+  return data;
+}
+
+/**
+ * Build transactions sheet data (raw transaction list)
+ */
+function buildTransactionsData(transactions: ClassifiedTransaction[]): (string | number)[][] {
+  const data: (string | number)[][] = [];
+
+  // Header row
+  data.push(["Date", "Description", "Amount", "Category", "Classification", "Month"]);
+
+  // Sort transactions by date (most recent first)
+  const sorted = [...transactions].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+
+  // Add each transaction
+  for (const t of sorted) {
+    data.push([
+      t.date,
+      t.name,
+      t.amount,
+      t.category,
+      t.classification,
+      t.date.substring(0, 7), // Month in YYYY-MM format
+    ]);
+  }
 
   return data;
 }
@@ -602,6 +631,102 @@ function buildDetailedFormattingRequests(
 }
 
 /**
+ * Build formatting requests for the transactions sheet
+ */
+function buildTransactionsFormattingRequests(
+  sheetId: number,
+  rowCount: number
+): sheets_v4.Schema$Request[] {
+  const requests: sheets_v4.Schema$Request[] = [];
+  const columnCount = 6; // Date, Description, Amount, Category, Classification, Month
+
+  // 1. Freeze header row
+  requests.push({
+    updateSheetProperties: {
+      properties: {
+        sheetId,
+        gridProperties: { frozenRowCount: 1 },
+      },
+      fields: "gridProperties.frozenRowCount",
+    },
+  });
+
+  // 2. Header row styling
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.headerBg,
+          horizontalAlignment: "CENTER",
+          textFormat: {
+            foregroundColor: COLORS.headerText,
+            fontSize: 11,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+    },
+  });
+
+  // 3. Currency format for Amount column (C)
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: 1,
+        startColumnIndex: 2,
+        endColumnIndex: 3,
+      },
+      cell: {
+        userEnteredFormat: {
+          numberFormat: { type: "CURRENCY", pattern: "$#,##0.00" },
+        },
+      },
+      fields: "userEnteredFormat.numberFormat",
+    },
+  });
+
+  // 4. Alternating row colors
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: 1,
+          endRowIndex: rowCount,
+        }],
+        booleanRule: {
+          condition: {
+            type: "CUSTOM_FORMULA",
+            values: [{ userEnteredValue: "=MOD(ROW(),2)=0" }],
+          },
+          format: {
+            backgroundColor: { red: 0.98, green: 0.98, blue: 0.98 },
+          },
+        },
+      },
+      index: 0,
+    },
+  });
+
+  // 5. Auto-resize columns
+  requests.push({
+    autoResizeDimensions: {
+      dimensions: {
+        sheetId,
+        dimension: "COLUMNS",
+        startIndex: 0,
+        endIndex: columnCount,
+      },
+    },
+  });
+
+  return requests;
+}
+
+/**
  * Format date range for spreadsheet title
  */
 function formatDateRangeTitle(dateRange: { start: string; end: string }): string {
@@ -615,48 +740,79 @@ function formatDateRangeTitle(dateRange: { start: string; end: string }): string
  */
 export async function createFinancialSpreadsheet(
   accessToken: string,
-  statement: FinancialStatement
+  statement: FinancialStatement,
+  transactions?: ClassifiedTransaction[]
 ): Promise<{ url: string; id: string }> {
   const sheets = createSheetsClient(accessToken);
 
-  // 1. Create spreadsheet with both sheets
+  // 1. Create spreadsheet with all sheets
+  const sheetDefinitions = [
+    { properties: { title: "Summary", index: 0 } },
+    { properties: { title: "Detailed Categories", index: 1 } },
+  ];
+
+  // Add Transactions sheet if transactions are provided
+  if (transactions && transactions.length > 0) {
+    sheetDefinitions.push({ properties: { title: "Transactions", index: 2 } });
+  }
+
   const spreadsheet = await sheets.spreadsheets.create({
     requestBody: {
       properties: {
         title: `Financial Statement - ${formatDateRangeTitle(statement.dateRange)}`,
         locale: "en_US",
       },
-      sheets: [
-        { properties: { title: "Summary", index: 0 } },
-        { properties: { title: "Detailed Categories", index: 1 } },
-      ],
+      sheets: sheetDefinitions,
     },
   });
 
   const spreadsheetId = spreadsheet.data.spreadsheetId!;
   const summarySheetId = spreadsheet.data.sheets![0].properties!.sheetId!;
   const detailedSheetId = spreadsheet.data.sheets![1].properties!.sheetId!;
+  const transactionsSheetId = transactions && transactions.length > 0
+    ? spreadsheet.data.sheets![2].properties!.sheetId!
+    : null;
 
-  // 2. Write data using valuesBatchUpdate for efficiency
+  // 2. Build data for all sheets
+  const dataUpdates: { range: string; values: (string | number)[][] }[] = [
+    { range: "Summary!A1", values: buildSummaryData(statement) },
+    { range: "Detailed Categories!A1", values: buildDetailedData(statement) },
+  ];
+
+  // Build transactions data if provided
+  let transactionsData: (string | number)[][] = [];
+  if (transactions && transactions.length > 0) {
+    transactionsData = buildTransactionsData(transactions);
+    dataUpdates.push({ range: "Transactions!A1", values: transactionsData });
+  }
+
+  // 3. Write all data using valuesBatchUpdate for efficiency
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
     requestBody: {
       valueInputOption: "USER_ENTERED",
-      data: [
-        { range: "Summary!A1", values: buildSummaryData(statement) },
-        { range: "Detailed Categories!A1", values: buildDetailedData(statement) },
-      ],
+      data: dataUpdates,
     },
   });
 
-  // 3. Apply all formatting in a single batchUpdate
+  // 4. Build formatting requests
+  const formattingRequests = [
+    ...buildSummaryFormattingRequests(summarySheetId, statement),
+    ...buildDetailedFormattingRequests(detailedSheetId, statement),
+  ];
+
+  // Add transactions formatting if sheet exists
+  if (transactionsSheetId !== null && transactionsData.length > 0) {
+    formattingRequests.push(
+      ...buildTransactionsFormattingRequests(transactionsSheetId, transactionsData.length)
+    );
+  }
+
+  // 5. Apply all formatting in a single batchUpdate
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
-      requests: [
-        ...buildSummaryFormattingRequests(summarySheetId, statement),
-        ...buildDetailedFormattingRequests(detailedSheetId, statement),
-      ],
+      requests: formattingRequests,
     },
   });
 
