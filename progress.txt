@@ -1,0 +1,56 @@
+# Ralph Progress Log
+Started: January 9, 2025
+Feature: Enhanced Financial Export with 3-Statement Model and AI Insights
+
+## Codebase Patterns
+
+### Google Sheets Export
+- Main export logic in `/src/lib/google-sheets.ts` (668 lines)
+- Uses Google Sheets API v4 batchUpdate for efficiency
+- Token refresh handled automatically before API calls
+- Professional formatting: dark slate blue headers (#2F3D4C), light gray sections
+
+### Transaction Classification
+- `/src/lib/transaction-classifier.ts` handles internal transfers and CC payment detection
+- Matches opposite transactions across accounts for transfer detection
+- Uses Plaid transaction codes for CC payment identification
+
+### Financial Data Structures
+- Types defined in `/src/types/index.ts`
+- MonthlyFinancials, FinancialStatement, ClassifiedTransaction interfaces
+- Plaid categories mapped to app categories in transactions route
+
+### API Patterns
+- Next.js App Router API routes in `/src/app/api/`
+- Supabase for auth and data persistence
+- Service role client used for elevated permissions when needed
+
+### Existing Export Flow
+1. User clicks Export in ExportDialog component
+2. POST to /api/export/sheets with date range
+3. Fetches transactions from Plaid
+4. Classifies transactions
+5. Builds financial statement data structure
+6. Creates Google Sheet with formatting
+7. Returns spreadsheet URL
+
+### Testing Approach
+- Run `npm run typecheck` for type validation
+- Use Claude-in-Chrome browser tools for visual verification
+- Google Drive MCP available for reading/writing sheet values
+
+### Financial Analyst Color Standards (CRITICAL)
+Per industry standards (Wall Street Prep, Macabacus, CFI):
+- **Blue text** (RGB: 0,0,255): Hard-coded inputs, historical data
+- **Black text** (RGB: 0,0,0): Formulas referencing same sheet
+- **Green text** (RGB: 0,128,0): Cross-sheet references
+- **Red text** (RGB: 255,0,0): Errors, warnings, external links
+
+Use FINANCIAL_COLORS constants in google-sheets.ts for consistent application.
+
+### MCP Session Tips
+- `/context` - Check context window usage during long sessions
+- `/mcp list` - Verify Google Drive MCP is connected
+- After writing to sheets, verify with `sheets_read_range` or browser screenshot
+
+---

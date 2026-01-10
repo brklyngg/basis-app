@@ -21,8 +21,9 @@ function createOAuthClient(redirectUri: string) {
 }
 
 // Scopes needed for Google Sheets
+// Using only drive.file (recommended/non-sensitive) instead of spreadsheets (sensitive)
+// drive.file allows creating and editing files the app creates, which is sufficient
 const SCOPES = [
-  "https://www.googleapis.com/auth/spreadsheets",
   "https://www.googleapis.com/auth/drive.file",
 ];
 

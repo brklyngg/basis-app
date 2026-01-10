@@ -1,0 +1,290 @@
+{
+  "project": "Talk To Your Money",
+  "branchName": "ralph/enhanced-financial-export",
+  "description": "Transform Google Sheets export into wizard-level personal financial dashboard with 3-statement model and AI insights",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Calculate core financial metrics",
+      "description": "As a user, I need the system to calculate key financial metrics from transaction data.",
+      "acceptanceCriteria": [
+        "Create /src/lib/financial-metrics.ts with calculateCoreMetrics() function",
+        "Calculate: totalIncome, totalExpenses, netCashFlow, savingsRate, avgMonthlyIncome, avgMonthlyExpenses",
+        "Exclude internal transfers and CC payments from calculations (use existing classifier)",
+        "Return typed FinancialMetrics interface",
+        "Typecheck passes",
+        "Add unit tests in /src/lib/__tests__/financial-metrics.test.ts"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Calculate trend metrics",
+      "description": "As a user, I want to see if my finances are improving or declining over time.",
+      "acceptanceCriteria": [
+        "Add calculateTrendMetrics() to financial-metrics.ts",
+        "Calculate month-over-month change in net cash flow",
+        "Calculate 3-month moving average",
+        "Return trend direction: 'improving' | 'stable' | 'declining'",
+        "Return percentage change from prior period",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Generate category breakdown with rankings",
+      "description": "As a user, I want spending broken down by category with rankings.",
+      "acceptanceCriteria": [
+        "Add calculateCategoryBreakdown() to financial-metrics.ts",
+        "Rank categories by total spend descending",
+        "Calculate each category's % of total expenses and % of income",
+        "Return top 5 categories with spend amount, percentage, and monthly average",
+        "Calculate month-over-month change per category",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Build balance sheet data structure",
+      "description": "As a user, I need a balance sheet view from connected accounts.",
+      "acceptanceCriteria": [
+        "Add calculateBalanceSheet() to financial-metrics.ts",
+        "Sum depository accounts as Liquid Assets",
+        "Sum credit card balances as Credit Card Debt",
+        "Calculate Net Worth = Assets - Liabilities",
+        "Group accounts by type in return structure",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Create dashboard sheet layout",
+      "description": "As a user, I want a visually clear executive summary as the first tab.",
+      "acceptanceCriteria": [
+        "Modify google-sheets.ts to create 'Dashboard' as first sheet",
+        "Add section headers: THE BIG PICTURE, KEY RATIOS, WHERE YOUR MONEY GOES, INSIGHTS",
+        "Professional formatting with dark headers and section colors",
+        "Frozen top rows for navigation",
+        "Placeholder cells for metrics (to be formula-driven later)",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "Implement Big Picture section",
+      "description": "As a user, I want total income, expenses, and net cash flow displayed prominently.",
+      "acceptanceCriteria": [
+        "Display Total Income with period total and monthly average",
+        "Display Total Expenses with period total and monthly average",
+        "Display Net Cash Flow with period total and monthly average",
+        "Add conditional formatting: green for positive, red for negative",
+        "Add trend indicator text comparing to prior period",
+        "Values are formulas referencing source data",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "Implement Key Ratios section",
+      "description": "As a user, I want key financial ratios with visual progress indicators.",
+      "acceptanceCriteria": [
+        "Display Savings Rate with progress bar (REPT function) and target 20%",
+        "Display Essential Expenses as % of Income with progress bar",
+        "Display Discretionary Expenses as % of Income with progress bar",
+        "Color coding: green if meeting target, yellow if close, red if concerning",
+        "Show benchmark comparisons inline",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Implement Spending Breakdown section",
+      "description": "As a user, I want to see where my money goes with visual bars.",
+      "acceptanceCriteria": [
+        "List top 5-7 spending categories in Dashboard",
+        "Show monthly average and total for each",
+        "Visual bar using REPT() for proportional display",
+        "Sort by spend amount descending",
+        "Show percentage of total expenses",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Create Income Statement sheet",
+      "description": "As a user, I want a proper Income Statement (P&L) format.",
+      "acceptanceCriteria": [
+        "Create 'Income Statement' sheet with proper P&L structure",
+        "INCOME section with subcategories from transaction data",
+        "ESSENTIAL EXPENSES section (Housing, Utilities, etc.)",
+        "DISCRETIONARY EXPENSES section (Dining, Entertainment, etc.)",
+        "Monthly columns with row totals",
+        "NET INCOME calculation at bottom",
+        "Apply financial analyst color coding: blue text for inputs, black for same-sheet formulas, green for cross-sheet refs",
+        "Use FINANCIAL_COLORS constants from CLAUDE.md",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Create Balance Sheet sheet",
+      "description": "As a user, I want a Balance Sheet view of my accounts.",
+      "acceptanceCriteria": [
+        "Create 'Balance Sheet' sheet",
+        "ASSETS section listing each account with balance",
+        "LIABILITIES section with credit card balances",
+        "NET WORTH calculation at bottom",
+        "Account type groupings",
+        "Point-in-time snapshot format",
+        "Apply financial analyst color coding: blue for account balances (inputs), black for formulas",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Create Cash Flow Statement sheet",
+      "description": "As a user, I want a Cash Flow Statement showing sources and uses.",
+      "acceptanceCriteria": [
+        "Create 'Cash Flow' sheet",
+        "OPERATING section: Net Income from P&L (green text - cross-sheet ref)",
+        "FINANCING section: CC payments, net CC balance change",
+        "NET CHANGE IN CASH calculation (black text - same-sheet formula)",
+        "Beginning and Ending Cash Balance rows",
+        "Monthly columns",
+        "Apply financial analyst color coding per CLAUDE.md standards",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Create Transactions sheet",
+      "description": "As a user, I want access to all underlying transaction data.",
+      "acceptanceCriteria": [
+        "Create 'Transactions' sheet with all transaction data",
+        "Columns: Date, Description, Amount, Category, Account, Classification",
+        "Sort by date newest first",
+        "Enable filters on header row",
+        "Mark excluded transactions (transfers, CC payments) in Classification",
+        "This is the source for all formula references",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Implement named ranges",
+      "description": "As a developer, I want named ranges for key metrics.",
+      "acceptanceCriteria": [
+        "Create named range: TotalIncome",
+        "Create named range: TotalExpenses",
+        "Create named range: NetCashFlow",
+        "Create named range: SavingsRate",
+        "Create named range: TransactionData",
+        "Add comment in Dashboard explaining available named ranges",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Add SPARKLINE trend charts",
+      "description": "As a user, I want mini trend charts for key metrics.",
+      "acceptanceCriteria": [
+        "Add SPARKLINE for monthly net cash flow in Dashboard",
+        "Add SPARKLINE for income trend",
+        "Add SPARKLINE for major category trends",
+        "Use appropriate colors (green positive, red negative)",
+        "Charts embedded next to relevant metrics",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Generate AI financial insights",
+      "description": "As a user, I want Claude to analyze my finances and generate insights.",
+      "acceptanceCriteria": [
+        "Create /src/lib/insights-generator.ts",
+        "Call Claude API with financial metrics summary",
+        "Generate 4-6 insights covering: health assessment, trend, top spending, savings rate, actionable observation, positive win",
+        "Insights written for finance beginners, non-judgmental with specific numbers",
+        "Return array of InsightItem objects with type and text",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Embed insights in Dashboard",
+      "description": "As a user, I want AI insights visible in my exported spreadsheet.",
+      "acceptanceCriteria": [
+        "Call insights generator during export",
+        "Display insights in Dashboard INSIGHTS section",
+        "Each insight on its own row with emoji prefix",
+        "Emoji mapping: positive=checkmark, neutral=info, attention=warning",
+        "Insights are static text generated at export time",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Connect Dashboard formulas to source sheets",
+      "description": "As a user, I want all Dashboard metrics driven by formulas referencing source data.",
+      "acceptanceCriteria": [
+        "Big Picture metrics use formulas like =SUM('Income Statement'!B:B)",
+        "Key Ratios calculated from Income Statement totals",
+        "Spending breakdown references Category Summary data",
+        "All values update if source data changes",
+        "No hardcoded values in Dashboard (except insights text)",
+        "Typecheck passes",
+        "Verify formulas work correctly in browser"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
