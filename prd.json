@@ -48,8 +48,8 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented with CategoryBreakdownItem and CategoryBreakdownResult interfaces, 13 new unit tests (total 32 tests passing)"
     },
     {
       "id": "US-004",
@@ -64,8 +64,8 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented with BalanceSheet, BalanceSheetAccount, BalanceSheetAccountGroup interfaces. 12 new unit tests (total 44 tests passing)"
     },
     {
       "id": "US-005",
@@ -80,8 +80,8 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Dashboard added as first sheet with 4 sections (THE BIG PICTURE, KEY RATIOS, WHERE YOUR MONEY GOES, INSIGHTS), professional dark slate formatting, frozen navigation, and placeholder cells for formula-driven metrics"
     },
     {
       "id": "US-006",

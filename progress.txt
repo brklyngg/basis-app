@@ -125,3 +125,76 @@ This ensures the user knows they're working with complete, accurate data.
   - Edge case: When prior month net cash flow is zero, use 100/-100 as percentage change indicator
 
 ---
+
+## 2025-01-09 23:32 - US-003
+- What was implemented:
+  - Added `CategoryBreakdownItem` and `CategoryBreakdownResult` interfaces to `/src/types/index.ts`
+  - Added `calculateCategoryBreakdown()` function to `/src/lib/financial-metrics.ts`
+  - Added helper function `calculateMonthlySpendByCategory()` for MoM calculations
+  - Function ranks categories by total spend descending
+  - Calculates % of total expenses and % of income for each category
+  - Returns top 5 categories plus all categories with rankings
+  - Computes month-over-month change per category
+  - Created 13 new unit tests for category breakdown (total 32 tests passing)
+
+- Files changed:
+  - `src/types/index.ts` - Added CategoryBreakdownItem, CategoryBreakdownResult interfaces
+  - `src/lib/financial-metrics.ts` - Added calculateCategoryBreakdown() and calculateMonthlySpendByCategory() functions
+  - `src/lib/__tests__/financial-metrics.test.ts` - Added 13 new test cases for category breakdown
+
+- **Learnings for future iterations:**
+  - When testing internal transfer exclusion, must include BOTH legs of the transfer (OUT and matching IN) to trigger the `internal_transfer` classification
+  - Single month of data should return MoM change = 0 (no prior month to compare to), need explicit `hasPriorMonth` flag
+  - Category breakdown only includes expenses (positive Plaid amounts), excludes income (negative amounts)
+  - The `getCashFlowTransactions()` helper already filters out internal_transfer, credit_card_payment, and excluded classifications
+
+---
+
+## 2025-01-09 23:35 - US-004
+- What was implemented:
+  - Added `BalanceSheet`, `BalanceSheetAccount`, and `BalanceSheetAccountGroup` interfaces to `/src/types/index.ts`
+  - Added `calculateBalanceSheet()` function to `/src/lib/financial-metrics.ts`
+  - Function groups accounts by type (depository = Liquid Assets, credit = Credit Card Debt)
+  - Calculates totalAssets, totalLiabilities, and netWorth
+  - Handles null balances gracefully (treats as 0)
+  - Includes ISO date string for point-in-time snapshot reference
+  - Created 12 new unit tests for balance sheet (total 44 tests passing)
+
+- Files changed:
+  - `src/types/index.ts` - Added BalanceSheet, BalanceSheetAccount, BalanceSheetAccountGroup interfaces
+  - `src/lib/financial-metrics.ts` - Added calculateBalanceSheet() function
+  - `src/lib/__tests__/financial-metrics.test.ts` - Added 12 new test cases for balance sheet
+
+- **Learnings for future iterations:**
+  - Balance sheet function doesn't need transactions - only accounts with current balances
+  - Plaid credit card balances are positive numbers representing amount owed
+  - Investment and loan accounts are not currently included - could be added in future enhancements
+  - The asOfDate is generated at calculation time using `new Date().toISOString()`
+
+---
+
+## 2025-01-09 23:39 - US-005
+- What was implemented:
+  - Added Dashboard as first sheet (index 0) in Google Sheets export
+  - Created `buildDashboardData()` function returning data + layout metadata
+  - Created `buildDashboardFormattingRequests()` for professional styling
+  - Added `FINANCIAL_COLORS` constants for industry-standard analyst color coding (blue=input, black=formula, green=cross-ref, red=error)
+  - Dashboard contains 4 sections: THE BIG PICTURE, KEY RATIOS, WHERE YOUR MONEY GOES, INSIGHTS
+  - Each section has proper header styling (dark slate #2F3D4C background, white text)
+  - Placeholder cells with "$0.00" and "0%" for future formula-driven values
+  - Note row at bottom about available named ranges for user extensibility
+  - Frozen title row and first column for navigation
+  - Updated `createFinancialSpreadsheet()` to include Dashboard and shift other sheet indices
+
+- Files changed:
+  - `src/lib/google-sheets.ts` - Added FINANCIAL_COLORS, DashboardLayout interface, buildDashboardData(), buildDashboardFormattingRequests(), updated createFinancialSpreadsheet() (+416 lines)
+
+- **Learnings for future iterations:**
+  - The DashboardLayout interface tracks row indices for each section, making it easy to apply targeted formatting
+  - Section headers should be merged cells for clean appearance (mergeCells with MERGE_ALL)
+  - Use updateDimensionProperties with pixelSize for fixed column widths (more predictable than autoResize)
+  - Placeholder values like "$0.00" are literal strings now - US-006 will replace them with formulas
+  - The spreadsheet title was updated from "Financial Statement" to "Financial Dashboard" to reflect the new focus
+  - Google Sheets API batchUpdate processes requests in order, so Dashboard formatting runs first
+
+---
