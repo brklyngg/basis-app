@@ -5,6 +5,29 @@ export interface Transaction {
   amount: number;
   category: string;
   pending: boolean;
+
+  // Fields for transfer detection and classification
+  accountId: string;
+  transactionCode: string | null;  // "transfer", "bill_payment", "purchase", etc.
+  paymentChannel: string | null;   // "online", "in store", "other"
+  paymentMeta?: {
+    payee: string | null;
+    payer: string | null;
+    paymentMethod: string | null;
+  };
+}
+
+// Classification types for financial statement generation
+export type TransactionClassification =
+  | "income"
+  | "expense_essential"
+  | "expense_discretionary"
+  | "internal_transfer"
+  | "credit_card_payment"
+  | "excluded";
+
+export interface ClassifiedTransaction extends Transaction {
+  classification: TransactionClassification;
 }
 
 export interface Account {
@@ -96,4 +119,68 @@ export interface TransactionsResponse {
   syncStatus: SyncStatus;
   errors?: PlaidItemError[];
   hasReauthRequired?: boolean;
+}
+
+// Financial Statement Types
+export interface MonthlyFinancials {
+  month: string;  // "2025-01", "2025-02", etc.
+
+  income: {
+    salary: number;
+    investment: number;
+    other: number;
+    total: number;
+  };
+
+  expenses: {
+    essential: {
+      housing: number;
+      utilities: number;
+      transportation: number;
+      groceries: number;
+      insurance: number;
+      medical: number;
+      debtService: number;
+      total: number;
+    };
+    discretionary: {
+      diningOut: number;
+      entertainment: number;
+      shopping: number;
+      travel: number;
+      subscriptions: number;
+      other: number;
+      total: number;
+    };
+    total: number;
+  };
+
+  transfers: {
+    internal: number;
+    creditCardPayments: number;
+  };
+
+  netCashFlow: number;
+  savingsRate: number;
+}
+
+export interface FinancialStatement {
+  months: MonthlyFinancials[];
+  dateRange: {
+    start: string;
+    end: string;
+  };
+  summary: {
+    averageMonthlyIncome: number;
+    averageMonthlyExpenses: number;
+    averageSavingsRate: number;
+    totalNetSavings: number;
+  };
+  // For detailed view - raw category totals by month
+  detailedCategories: {
+    category: string;
+    monthlyTotals: Record<string, number>;  // month -> amount
+    total: number;
+    average: number;
+  }[];
 }

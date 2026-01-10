@@ -44,17 +44,20 @@ export async function GET(request: Request) {
 
     for (const item of plaidItems) {
       try {
-        let cursor = item.sync_cursor || undefined;
+        // Always use empty cursor to fetch ALL historical transactions
+        // Per Plaid docs: cursor: "" returns all transactions as "adds"
+        // This ensures data persists across page refreshes without storing transactions in DB
+        let cursor: string | undefined = "";
         let hasMore = true;
         let itemSyncStatus: SyncStatus = "ready";
         const itemTransactions: Transaction[] = [];
         let accountsFetched = false;
 
-        // Paginate through all available updates
+        // Paginate through all available transactions
         while (hasMore) {
           const response = await plaidClient.transactionsSync({
             access_token: item.access_token,
-            cursor: cursor,
+            cursor: cursor || undefined,
             count: 500,
           });
 
@@ -67,7 +70,7 @@ export async function GET(request: Request) {
             overallSyncStatus = "syncing";
           }
 
-          // Map added transactions
+          // Map added transactions with enhanced fields for classification
           for (const t of data.added) {
             itemTransactions.push({
               id: t.transaction_id,
@@ -76,6 +79,15 @@ export async function GET(request: Request) {
               amount: t.amount,
               category: t.personal_finance_category?.primary || t.category?.[0] || "Other",
               pending: t.pending,
+              // Enhanced fields for transfer detection
+              accountId: t.account_id,
+              transactionCode: t.transaction_code || null,
+              paymentChannel: t.payment_channel || null,
+              paymentMeta: t.payment_meta ? {
+                payee: t.payment_meta.payee || null,
+                payer: t.payment_meta.payer || null,
+                paymentMethod: t.payment_meta.payment_method || null,
+              } : undefined,
             });
           }
 
@@ -90,6 +102,15 @@ export async function GET(request: Request) {
                 amount: t.amount,
                 category: t.personal_finance_category?.primary || t.category?.[0] || "Other",
                 pending: t.pending,
+                // Enhanced fields for transfer detection
+                accountId: t.account_id,
+                transactionCode: t.transaction_code || null,
+                paymentChannel: t.payment_channel || null,
+                paymentMeta: t.payment_meta ? {
+                  payee: t.payment_meta.payee || null,
+                  payer: t.payment_meta.payer || null,
+                  paymentMethod: t.payment_meta.payment_method || null,
+                } : undefined,
               };
             }
           }
@@ -122,13 +143,9 @@ export async function GET(request: Request) {
           hasMore = data.has_more;
         }
 
-        // Store updated cursor in database
-        if (cursor && cursor !== item.sync_cursor) {
-          await supabase
-            .from("plaid_items")
-            .update({ sync_cursor: cursor, updated_at: new Date().toISOString() })
-            .eq("id", item.id);
-        }
+        // Note: We intentionally don't store the cursor since we always want
+        // to fetch all historical transactions on each request. This keeps
+        // the implementation simple without requiring a transactions table.
 
         // Add this item's transactions to the collection
         allTransactions.push(...itemTransactions);

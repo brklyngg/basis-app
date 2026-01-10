@@ -3,6 +3,7 @@
 import { Loader2, Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ExportDialog } from "@/components/export-dialog";
 import type { Account, FinancialSnapshot, SyncStatus } from "@/types";
 
 interface FinancialSummaryProps {
@@ -133,10 +134,11 @@ export function FinancialSummary({
       {/* Spending Summary Card */}
       {snapshot && snapshot.totalSpending > 0 && (
         <Card>
-          <CardHeader className="py-4">
+          <CardHeader className="py-4 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-sm font-medium text-neutral-500">
               {snapshot.dateRange.days} Day Summary
             </CardTitle>
+            <ExportDialog disabled={syncStatus === "syncing"} />
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4 text-sm">

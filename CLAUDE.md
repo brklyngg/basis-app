@@ -92,6 +92,47 @@ The app distinguishes between:
 - Last 4 messages of conversation history sent for context
 - "Financial Maven" persona: analytical, non-judgmental, data-driven
 
+### Financial Statement Export (Google Sheets)
+
+**Purpose**: Export analyst-grade financial statements to Google Sheets with proper handling of:
+- Internal transfers (excluded from cash flow)
+- Credit card payments (avoids double-counting with CC spending)
+- Monthly aggregation with income, essential expenses, discretionary expenses
+- Net cash flow and savings rate calculations
+
+**New API Routes** (`src/app/api/`):
+- `auth/google/route.ts` - Initiate Google OAuth flow
+- `auth/google/callback/route.ts` - Handle OAuth callback, store tokens
+- `export/sheets/route.ts` - Generate and create Google Sheets spreadsheet
+
+**New Core Logic** (`src/lib/`):
+- `transaction-classifier.ts` - Classify transactions (income, essential, discretionary, transfer, CC payment)
+- `financial-statement.ts` - Build monthly aggregated financial statements
+- `google-sheets.ts` - Create professionally formatted Google Sheets with batchUpdate API
+
+**New Database Table**:
+- `google_tokens` - Stores Google OAuth tokens (access_token, refresh_token, expires_at)
+
+**UI Component**:
+- `src/components/export-dialog.tsx` - Export modal with date range selection and Google OAuth flow
+
+**Google Sheets Output Structure**:
+- **Summary sheet**: Income, Essential Expenses, Discretionary Expenses, Net Cash Flow, Savings Rate by month
+- **Detailed Categories sheet**: All Plaid categories with monthly breakdowns
+
+**Environment Variables Required**:
+```
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=https://yourdomain.com/api/auth/google/callback
+```
+
+**Google Cloud Setup**:
+1. Create project in Google Cloud Console
+2. Enable Google Sheets API
+3. Create OAuth 2.0 credentials (Web application)
+4. Add authorized redirect URI
+
 ## Environment Variables
 
 Required in `.env.local`:
@@ -102,6 +143,11 @@ PLAID_CLIENT_ID=
 PLAID_SECRET=
 PLAID_ENV=development|sandbox|production
 ANTHROPIC_API_KEY=
+
+# For Google Sheets export (optional)
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=https://yourdomain.com/api/auth/google/callback
 ```
 
 ## Git Workflow
@@ -114,3 +160,81 @@ Key references for the Plaid integration:
 - [/transactions/sync](https://plaid.com/docs/api/products/transactions/#transactionssync) - Uses `transactions_update_status` field, cursor-based pagination
 - [Webhooks](https://plaid.com/docs/transactions/webhooks/) - `SYNC_UPDATES_AVAILABLE` for real-time updates
 - [Errors](https://plaid.com/docs/errors/transactions/) - `PRODUCT_NOT_READY`, `ITEM_LOGIN_REQUIRED`, etc.
+
+---
+
+## Financial Analyst Best Practices (Google Sheets Formatting)
+
+Follow these **industry-standard color codes** for all cell formatting in exported spreadsheets:
+
+| Color | RGB Values | Usage |
+|-------|------------|-------|
+| **Blue** | `(0, 0, 255)` | Hard-coded inputs, historical data, manual assumptions |
+| **Black** | `(0, 0, 0)` | Calculations and formulas referencing the same sheet |
+| **Green** | `(0, 128, 0)` | References or links to other worksheets within the same file |
+| **Red** | `(255, 0, 0)` | External links to data outside the model or critical errors/warnings |
+
+### Google Sheets API Color Constants
+
+Use these in `google-sheets.ts` for batchUpdate formatting:
+
+```typescript
+const FINANCIAL_COLORS = {
+  // Text colors (financial analyst standard)
+  INPUT_BLUE: { red: 0, green: 0, blue: 1 },           // Hard-coded inputs
+  FORMULA_BLACK: { red: 0, green: 0, blue: 0 },        // Same-sheet formulas
+  CROSSREF_GREEN: { red: 0, green: 0.5, blue: 0 },     // Cross-sheet references
+  ERROR_RED: { red: 1, green: 0, blue: 0 },            // Errors/external links
+
+  // Background colors
+  HEADER_DARK: { red: 0.18, green: 0.24, blue: 0.30 }, // #2F3D4C
+  SECTION_LIGHT: { red: 0.95, green: 0.95, blue: 0.95 }, // #F2F2F2
+  POSITIVE_GREEN_BG: { red: 0.85, green: 0.95, blue: 0.85 }, // Light green for positive values
+  NEGATIVE_RED_BG: { red: 0.95, green: 0.85, blue: 0.85 },   // Light red for negative values
+};
+```
+
+### Operational Rules
+
+1. **Structure:** Maintain strict separation of Inputs → Calculations → Outputs
+2. **No hard-coded numbers in formulas:** All inputs should be in dedicated input cells (blue text)
+3. **Named ranges:** Use for all key metrics to enable user extensibility
+4. **Verification:** After writing to a sheet, verify using `sheets_read_range` or browser screenshot
+5. **Token efficiency:** Pull specific ranges rather than entire sheets
+
+### Sheet Organization Standard
+
+```
+Tab 1: Dashboard       - Executive summary (formula-driven, references other sheets)
+Tab 2: Income Statement - P&L format with monthly columns
+Tab 3: Balance Sheet    - Assets, Liabilities, Net Worth
+Tab 4: Cash Flow        - Sources and Uses format
+Tab 5: Transactions     - Raw data source (all formulas reference this)
+```
+
+### Export Quality Checklist
+
+Before completing any export enhancement:
+- [ ] Blue text for all hard-coded inputs
+- [ ] Black text for same-sheet formulas
+- [ ] Green text for cross-sheet references
+- [ ] Headers frozen for navigation
+- [ ] Named ranges created for key metrics
+- [ ] All Dashboard values are formula-driven (not hard-coded)
+- [ ] Balance sheet balances (Assets = Liabilities + Equity)
+- [ ] Conditional formatting for positive/negative values
+- [ ] Professional number formatting (currency, percentages)
+
+### MCP Session Management
+
+If context becomes cluttered during long Google Sheets sessions:
+- `/context` - Check context window usage
+- `/clear` + read key files - Reset while maintaining CLAUDE.md instructions
+- `/mcp list` - Verify Google Drive MCP tools are available
+
+### Financial Modeling Standard Sources
+
+- [Wall Street Prep: Financial Modeling Best Practices](https://www.wallstreetprep.com/knowledge/financial-modeling-best-practices/)
+- [Breaking Into Wall Street: Excel Best Practices](https://breakingintowallstreet.com/kb/finance/financial-modeling-best-practices/)
+- [Macabacus: Model Readability](https://macabacus.com/blog/improving-model-readability-with-color-formatting)
+- [Corporate Finance Institute: Model Documentation](https://corporatefinanceinstitute.com/resources/excel/documenting-excel-models-best-practices/)
