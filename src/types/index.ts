@@ -184,3 +184,25 @@ export interface FinancialStatement {
     average: number;
   }[];
 }
+
+// Core financial metrics for dashboard display
+export interface FinancialMetrics {
+  // Totals for the period
+  totalIncome: number;
+  totalExpenses: number;
+  netCashFlow: number;
+
+  // Derived ratios
+  savingsRate: number; // percentage (0-100)
+
+  // Averages
+  avgMonthlyIncome: number;
+  avgMonthlyExpenses: number;
+
+  // Period info
+  periodMonths: number;
+  dateRange: {
+    start: string;
+    end: string;
+  };
+}
