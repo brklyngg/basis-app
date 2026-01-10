@@ -422,6 +422,39 @@ This ensures the user knows they're working with complete, accurate data.
 
 ---
 
+## 2025-01-10 00:30 - US-016
+- What was implemented:
+  - Embedded AI-generated financial insights into Dashboard INSIGHTS section
+  - Added INSIGHT_EMOJI constant mapping InsightType to emoji characters:
+    - `positive` = ✓ (checkmark)
+    - `neutral` = ℹ (info)
+    - `attention` = ⚠ (warning)
+  - Added `getInsightEmoji()` helper function for emoji lookup
+  - Updated export API route to:
+    - Calculate metrics using `calculateCoreMetrics`, `calculateTrendMetrics`, `calculateCategoryBreakdown`, `calculateBalanceSheet`
+    - Call `generateFinancialInsights()` with calculated metrics
+    - Handle errors gracefully (export continues without insights if API fails)
+  - Updated `createFinancialSpreadsheet()` to accept optional `insights` parameter
+  - Updated `buildDashboardData()` to:
+    - Accept optional `InsightItem[]` parameter
+    - Render each insight on its own row with emoji prefix (e.g., "✓  Your finances are in solid shape...")
+    - Show fallback message if no insights are generated
+
+- Files changed:
+  - `src/app/api/export/sheets/route.ts` - Added metrics imports, insight generation with error handling (+35 lines)
+  - `src/lib/google-sheets.ts` - Added INSIGHT_EMOJI constant, getInsightEmoji() helper, updated function signatures and INSIGHTS section rendering (+67 lines, -9 lines)
+  - `prd.json` - Updated US-016 passes to true with implementation notes
+
+- **Learnings for future iterations:**
+  - The metrics functions (`calculateCoreMetrics`, etc.) take raw `Transaction[]` and `Account[]` - they classify internally
+  - Don't pass classified transactions to metrics functions - they'll re-classify
+  - Use Unicode emoji characters directly in strings (✓, ℹ, ⚠) - they render correctly in Google Sheets
+  - Insights are static text generated at export time - no formulas needed
+  - The INSIGHTS section row indices are now dynamic (`data.length - 1`) since we add variable number of insight rows
+  - Error handling for insight generation should be try/catch with fallback - don't fail the entire export
+
+---
+
 ## 2025-01-10 00:21 - US-014
 - What was implemented:
   - Added SPARKLINE trend charts to the Dashboard for key financial metrics
@@ -448,5 +481,30 @@ This ensures the user knows they're working with complete, accurate data.
   - Colors can be specified as hex strings like "#228B22" or color names
   - When adding columns to Dashboard, ensure ALL row arrays (headers, data, spacers) are updated consistently
   - The Detailed Categories sheet has monthly data in columns B onwards (A is category name)
+
+---
+
+## 2025-01-10 00:35 - US-017
+- What was implemented:
+  - Connected all Dashboard formulas to source sheets (Income Statement instead of Summary)
+  - Added `findIncomeStatementRowIndices()` helper function to get row positions from Income Statement layout
+  - Updated Big Picture metrics (Total Income, Total Expenses, Net Cash Flow) to use `='Income Statement'!{col}{row}` formulas
+  - Updated Key Ratios to calculate directly from Income Statement totals:
+    - Savings Rate = Net Income / Total Income (formula-driven)
+    - Essential Expenses % = Essential Subtotal / Total Income
+    - Discretionary Expenses % = Discretionary Subtotal / Total Income
+  - Updated Spending Breakdown to use Income Statement Total Expenses for percentage calculations
+  - All Dashboard values are now formula-driven except static trend text and AI insights
+
+- Files changed:
+  - `src/lib/google-sheets.ts` - Added findIncomeStatementRowIndices(), updated buildDashboardData() to use Income Statement references (+52 lines, -15 lines)
+  - `prd.json` - Marked US-017 as passing with implementation notes
+
+- **Learnings for future iterations:**
+  - The Income Statement sheet has a cleaner P&L structure than Summary sheet, making it better for formula references
+  - Row indices from layout are 0-indexed, but Sheets formulas need 1-indexed rows (add +1 when building formulas)
+  - Keep summaryIndices available for the savingsRateRow even though we're using Income Statement for most metrics - some calculated ratios live in Summary
+  - For complex formulas with multiple cross-sheet references, consider readability vs. single sheet references
+  - Net Income in Income Statement is equivalent to Net Cash Flow for this P&L format (Income - Expenses)
 
 ---

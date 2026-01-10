@@ -213,6 +213,49 @@ function findSummaryRowIndices(statement: FinancialStatement): {
 }
 
 /**
+ * Find row indices in Income Statement sheet for key metrics
+ * This allows Dashboard to reference Income Statement data with formulas
+ *
+ * US-017: Dashboard should reference Income Statement for Big Picture metrics
+ * to ensure formulas use proper P&L structure instead of Summary sheet
+ */
+function findIncomeStatementRowIndices(statement: FinancialStatement): {
+  totalIncomeRow: number;
+  essentialSubtotalRow: number;
+  discretionarySubtotalRow: number;
+  totalExpensesRow: number;
+  netIncomeRow: number;
+  totalColumnLetter: string; // Column with Total values
+  avgColumnLetter: string; // Column with Monthly Average values
+  firstMonthColumn: string; // First month data column for SPARKLINE
+  lastMonthColumn: string; // Last month data column for SPARKLINE
+} {
+  // Build the Income Statement data to find row positions
+  const { layout } = buildIncomeStatementData(statement);
+
+  // Get column letters based on month count
+  // Structure: Category (0), [months...], Total, Avg
+  const monthCount = statement.months.length;
+  const firstMonthColumnIndex = 1; // First month at column B (index 1)
+  const lastMonthColumnIndex = monthCount; // Last month before Total
+  const totalColumnIndex = monthCount + 1; // Total column
+  const avgColumnIndex = monthCount + 2; // Avg column
+
+  return {
+    // Row indices are 0-indexed in layout, but need to be 1-indexed for Sheets formulas
+    totalIncomeRow: layout.incomeEndRow + 1, // TOTAL INCOME row (1-indexed)
+    essentialSubtotalRow: layout.essentialEndRow + 1, // Essential SUBTOTAL row (1-indexed)
+    discretionarySubtotalRow: layout.discretionaryEndRow + 1, // Discretionary SUBTOTAL row (1-indexed)
+    totalExpensesRow: layout.totalExpensesRow + 1, // TOTAL EXPENSES row (1-indexed)
+    netIncomeRow: layout.netIncomeRow + 1, // NET INCOME row (1-indexed)
+    totalColumnLetter: getColumnLetter(totalColumnIndex),
+    avgColumnLetter: getColumnLetter(avgColumnIndex),
+    firstMonthColumn: getColumnLetter(firstMonthColumnIndex),
+    lastMonthColumn: getColumnLetter(lastMonthColumnIndex),
+  };
+}
+
+/**
  * Convert column index to letter (0 = A, 1 = B, etc.)
  */
 function getColumnLetter(index: number): string {
@@ -2167,19 +2210,26 @@ function buildDashboardData(statement: FinancialStatement, insights?: InsightIte
   const data: (string | number)[][] = [];
   const dateRangeStr = `${formatMonthDisplay(statement.dateRange.start)} - ${formatMonthDisplay(statement.dateRange.end)}`;
 
-  // Find Summary sheet row indices for formulas
+  // US-017: Dashboard formulas should reference Income Statement sheet for Big Picture metrics
+  // This ensures all values are formula-driven and update if source data changes
+  const isIndices = findIncomeStatementRowIndices(statement);
+  const {
+    totalIncomeRow: isTotalIncomeRow,
+    essentialSubtotalRow: isEssentialSubtotalRow,
+    discretionarySubtotalRow: isDiscretionarySubtotalRow,
+    totalExpensesRow: isTotalExpensesRow,
+    netIncomeRow: isNetIncomeRow,
+    totalColumnLetter: isTotalCol,
+    avgColumnLetter: isAvgCol,
+    firstMonthColumn: isFirstMonthCol,
+    lastMonthColumn: isLastMonthCol,
+  } = isIndices;
+
+  // Also get Summary indices for savings rate (which is a calculated ratio not in Income Statement)
   const summaryIndices = findSummaryRowIndices(statement);
   const {
-    totalIncomeRow,
-    totalExpensesRow,
-    netCashFlowRow,
     savingsRateRow,
-    essentialSubtotalRow,
-    discretionarySubtotalRow,
-    lastDataColumn,
-    avgColumn,
-    firstMonthColumn,
-    lastMonthColumn,
+    lastDataColumn: summaryTotalCol,
   } = summaryIndices;
 
   // Calculate trend text based on month-over-month data
@@ -2210,26 +2260,26 @@ function buildDashboardData(statement: FinancialStatement, insights?: InsightIte
   data.push(["Metric", "Period Total", "Monthly Average", "Trend", "Trend Chart", ""]);
   const bigPictureStartRow = 3;
 
-  // Row 4-6: Big Picture metrics with formulas referencing Summary sheet
-  // Using formulas to reference Summary sheet - values update if source changes
+  // Row 4-6: Big Picture metrics with formulas referencing Income Statement sheet (US-017)
+  // Using formulas to reference Income Statement - values update if source changes
   // SPARKLINE formulas reference monthly data range for trend visualization
   // SPARKLINE options: {"charttype":"line","color":"green"} for income
-  const incomeSparkline = `=SPARKLINE('Summary'!${firstMonthColumn}${totalIncomeRow}:${lastMonthColumn}${totalIncomeRow},{"charttype","line";"color","#228B22";"linewidth",2})`;
+  const incomeSparkline = `=SPARKLINE('Income Statement'!${isFirstMonthCol}${isTotalIncomeRow}:${isLastMonthCol}${isTotalIncomeRow},{"charttype","line";"color","#228B22";"linewidth",2})`;
   data.push([
     "Total Income",
-    `='Summary'!${lastDataColumn}${totalIncomeRow}`,
-    `='Summary'!${avgColumn}${totalIncomeRow}`,
+    `='Income Statement'!${isTotalCol}${isTotalIncomeRow}`,
+    `='Income Statement'!${isAvgCol}${isTotalIncomeRow}`,
     incomeTrendText,
     incomeSparkline,
     "",
   ]);
 
   // SPARKLINE for expenses - use red/orange color to indicate spending
-  const expensesSparkline = `=SPARKLINE('Summary'!${firstMonthColumn}${totalExpensesRow}:${lastMonthColumn}${totalExpensesRow},{"charttype","line";"color","#DC143C";"linewidth",2})`;
+  const expensesSparkline = `=SPARKLINE('Income Statement'!${isFirstMonthCol}${isTotalExpensesRow}:${isLastMonthCol}${isTotalExpensesRow},{"charttype","line";"color","#DC143C";"linewidth",2})`;
   data.push([
     "Total Expenses",
-    `='Summary'!${lastDataColumn}${totalExpensesRow}`,
-    `='Summary'!${avgColumn}${totalExpensesRow}`,
+    `='Income Statement'!${isTotalCol}${isTotalExpensesRow}`,
+    `='Income Statement'!${isAvgCol}${isTotalExpensesRow}`,
     expensesTrendText,
     expensesSparkline,
     "",
@@ -2237,11 +2287,12 @@ function buildDashboardData(statement: FinancialStatement, insights?: InsightIte
 
   // SPARKLINE for net cash flow - use column chart with color based on positive/negative
   // Green for positive values, red for negative values
-  const netCashFlowSparkline = `=SPARKLINE('Summary'!${firstMonthColumn}${netCashFlowRow}:${lastMonthColumn}${netCashFlowRow},{"charttype","column";"color","#228B22";"negcolor","#DC143C"})`;
+  // NET INCOME in Income Statement is equivalent to NET CASH FLOW
+  const netCashFlowSparkline = `=SPARKLINE('Income Statement'!${isFirstMonthCol}${isNetIncomeRow}:${isLastMonthCol}${isNetIncomeRow},{"charttype","column";"color","#228B22";"negcolor","#DC143C"})`;
   data.push([
     "Net Cash Flow",
-    `='Summary'!${lastDataColumn}${netCashFlowRow}`,
-    `='Summary'!${avgColumn}${netCashFlowRow}`,
+    `='Income Statement'!${isTotalCol}${isNetIncomeRow}`,
+    `='Income Statement'!${isAvgCol}${isNetIncomeRow}`,
     cashFlowTrendText,
     netCashFlowSparkline,
     "",
@@ -2261,13 +2312,13 @@ function buildDashboardData(statement: FinancialStatement, insights?: InsightIte
   data.push(["Ratio", "Your Value", "Target", "Progress", "Status", ""]);
   const keyRatiosStartRow = 9;
 
-  // Row 10-12: Key Ratio metrics with formulas referencing Summary sheet
-  // Savings Rate formula: Reference the savings rate from Summary sheet
+  // Row 10-12: Key Ratio metrics with formulas referencing Income Statement (US-017)
+  // Savings Rate formula: Calculate from Income Statement totals (Net Income / Total Income)
   // Target: 20%+ is green, 10-20% yellow, <10% red
   // Progress bar: REPT("█", MIN(10, ROUND(rate*50))) creates up to 10 blocks for 20%+
-  const savingsRateFormula = `='Summary'!${lastDataColumn}${savingsRateRow}`;
-  const savingsProgressFormula = `=REPT("█",MIN(10,ROUND('Summary'!${lastDataColumn}${savingsRateRow}*50)))&REPT("░",10-MIN(10,ROUND('Summary'!${lastDataColumn}${savingsRateRow}*50)))`;
-  const savingsStatusFormula = `=IF('Summary'!${lastDataColumn}${savingsRateRow}>=0.2,"✓ On Track",IF('Summary'!${lastDataColumn}${savingsRateRow}>=0.1,"⚠ Close","⚡ Needs Attention"))`;
+  const savingsRateFormula = `=IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,0,'Income Statement'!${isTotalCol}${isNetIncomeRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow})`;
+  const savingsProgressFormula = `=REPT("█",MIN(10,ROUND(IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,0,'Income Statement'!${isTotalCol}${isNetIncomeRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow})*50)))&REPT("░",10-MIN(10,ROUND(IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,0,'Income Statement'!${isTotalCol}${isNetIncomeRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow})*50)))`;
+  const savingsStatusFormula = `=IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,"—",IF('Income Statement'!${isTotalCol}${isNetIncomeRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow}>=0.2,"✓ On Track",IF('Income Statement'!${isTotalCol}${isNetIncomeRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow}>=0.1,"⚠ Close","⚡ Needs Attention")))`;
 
   data.push([
     "Savings Rate",
@@ -2281,9 +2332,9 @@ function buildDashboardData(statement: FinancialStatement, insights?: InsightIte
   // Essential Expenses % of Income formula
   // Target: 50% or less is good, 50-70% yellow, >70% red
   // Progress bar: REPT at max 100% scale, divided by 10 for 10 blocks
-  const essentialPctFormula = `=IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${essentialSubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})`;
-  const essentialProgressFormula = `=REPT("█",MIN(10,ROUND(IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${essentialSubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})*10)))&REPT("░",10-MIN(10,ROUND(IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${essentialSubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})*10)))`;
-  const essentialStatusFormula = `=IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,"—",IF('Summary'!${lastDataColumn}${essentialSubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow}<=0.5,"✓ Healthy",IF('Summary'!${lastDataColumn}${essentialSubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow}<=0.7,"⚠ Elevated","⚡ High")))`;
+  const essentialPctFormula = `=IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,0,'Income Statement'!${isTotalCol}${isEssentialSubtotalRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow})`;
+  const essentialProgressFormula = `=REPT("█",MIN(10,ROUND(IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,0,'Income Statement'!${isTotalCol}${isEssentialSubtotalRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow})*10)))&REPT("░",10-MIN(10,ROUND(IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,0,'Income Statement'!${isTotalCol}${isEssentialSubtotalRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow})*10)))`;
+  const essentialStatusFormula = `=IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,"—",IF('Income Statement'!${isTotalCol}${isEssentialSubtotalRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow}<=0.5,"✓ Healthy",IF('Income Statement'!${isTotalCol}${isEssentialSubtotalRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow}<=0.7,"⚠ Elevated","⚡ High")))`;
 
   data.push([
     "Essential Expenses",
@@ -2296,9 +2347,9 @@ function buildDashboardData(statement: FinancialStatement, insights?: InsightIte
 
   // Discretionary Expenses % of Income formula
   // Target: 30% or less is good, 30-40% yellow, >40% red
-  const discretionaryPctFormula = `=IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${discretionarySubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})`;
-  const discretionaryProgressFormula = `=REPT("█",MIN(10,ROUND(IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${discretionarySubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})*10)))&REPT("░",10-MIN(10,ROUND(IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${discretionarySubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})*10)))`;
-  const discretionaryStatusFormula = `=IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,"—",IF('Summary'!${lastDataColumn}${discretionarySubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow}<=0.3,"✓ In Control",IF('Summary'!${lastDataColumn}${discretionarySubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow}<=0.4,"⚠ Watch Spending","⚡ Overspending")))`;
+  const discretionaryPctFormula = `=IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,0,'Income Statement'!${isTotalCol}${isDiscretionarySubtotalRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow})`;
+  const discretionaryProgressFormula = `=REPT("█",MIN(10,ROUND(IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,0,'Income Statement'!${isTotalCol}${isDiscretionarySubtotalRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow})*10)))&REPT("░",10-MIN(10,ROUND(IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,0,'Income Statement'!${isTotalCol}${isDiscretionarySubtotalRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow})*10)))`;
+  const discretionaryStatusFormula = `=IF('Income Statement'!${isTotalCol}${isTotalIncomeRow}=0,"—",IF('Income Statement'!${isTotalCol}${isDiscretionarySubtotalRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow}<=0.3,"✓ In Control",IF('Income Statement'!${isTotalCol}${isDiscretionarySubtotalRow}/'Income Statement'!${isTotalCol}${isTotalIncomeRow}<=0.4,"⚠ Watch Spending","⚡ Overspending")))`;
 
   data.push([
     "Discretionary Expenses",
@@ -2341,16 +2392,15 @@ function buildDashboardData(statement: FinancialStatement, insights?: InsightIte
       // Monthly Average formula - reference Detailed Categories sheet
       const avgFormula = `='Detailed Categories'!${detailedAvgCol}${rowNum}`;
 
-      // Percentage of expenses formula
-      // Calculate percentage based on the category's total vs total expenses
-      // Reference the same sheet for the total, calculate percentage
+      // Percentage of expenses formula (US-017)
+      // Calculate percentage based on the category's total vs total expenses from Income Statement
       const totalCol = spendingData.totalColumnLetter;
-      const pctFormula = `=IF('Summary'!${lastDataColumn}${totalExpensesRow}=0,0,'Detailed Categories'!${totalCol}${rowNum}/'Summary'!${lastDataColumn}${totalExpensesRow})`;
+      const pctFormula = `=IF('Income Statement'!${isTotalCol}${isTotalExpensesRow}=0,0,'Detailed Categories'!${totalCol}${rowNum}/'Income Statement'!${isTotalCol}${isTotalExpensesRow})`;
 
       // Visual bar using REPT() - shows proportional bars for relative spend
       // Scale: largest category = 10 blocks, others proportional
       // Formula: REPT("█", MAX(1, ROUND(pct*10))) for up to 10 blocks (100%)
-      const visualFormula = `=REPT("█",MAX(1,MIN(10,ROUND('Detailed Categories'!${totalCol}${rowNum}/'Summary'!${lastDataColumn}${totalExpensesRow}*10))))&REPT("░",10-MAX(1,MIN(10,ROUND('Detailed Categories'!${totalCol}${rowNum}/'Summary'!${lastDataColumn}${totalExpensesRow}*10))))`;
+      const visualFormula = `=REPT("█",MAX(1,MIN(10,ROUND('Detailed Categories'!${totalCol}${rowNum}/'Income Statement'!${isTotalCol}${isTotalExpensesRow}*10))))&REPT("░",10-MAX(1,MIN(10,ROUND('Detailed Categories'!${totalCol}${rowNum}/'Income Statement'!${isTotalCol}${isTotalExpensesRow}*10))))`;
 
       // SPARKLINE for category trend - use bar chart for spending categories
       // Orange/amber color for spending visualization

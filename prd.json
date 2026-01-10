@@ -283,8 +283,8 @@
         "Verify formulas work correctly in browser"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added findIncomeStatementRowIndices() helper. Updated Big Picture metrics to use ='Income Statement'!{col}{row} formulas. Key Ratios now calculate savings rate from Income Statement (Net Income / Total Income). Spending breakdown uses Income Statement Total Expenses for percentage calculations. All Dashboard values are formula-driven except static trend text and AI insights."
     }
   ]
 }
