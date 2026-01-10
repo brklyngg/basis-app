@@ -421,3 +421,32 @@ This ensures the user knows they're working with complete, accurate data.
   - The Transactions sheet serves as source data for formula references in other sheets
 
 ---
+
+## 2025-01-10 00:21 - US-014
+- What was implemented:
+  - Added SPARKLINE trend charts to the Dashboard for key financial metrics
+  - SPARKLINE for Total Income (line chart, forest green #228B22, linewidth 2)
+  - SPARKLINE for Total Expenses (line chart, crimson red #DC143C, linewidth 2)
+  - SPARKLINE for Net Cash Flow (column chart, green for positive, red for negative)
+  - SPARKLINE for top 7 spending categories (bar chart, dark orange #FF8C00)
+  - Extended `findSummaryRowIndices()` to return `firstMonthColumn` and `lastMonthColumn` for SPARKLINE data ranges
+  - Extended `findTopSpendingCategories()` to return month column range for category sparklines
+  - Expanded Dashboard to 6 columns (added "Trend Chart" column header)
+  - Updated all Dashboard sections to use 6-column arrays
+  - Updated formatting: columnCount = 6, added column width for sparkline (150px) and padding (50px)
+
+- Files changed:
+  - `src/lib/google-sheets.ts` - Extended helper functions and buildDashboardData/buildDashboardFormattingRequests (+62 lines, -22 lines)
+
+- **Learnings for future iterations:**
+  - SPARKLINE syntax in Google Sheets: `=SPARKLINE(data_range,{option1,value1;option2,value2})`
+  - Use semicolons to separate options in SPARKLINE, not commas (different from regular function args)
+  - Available SPARKLINE chart types: "line", "bar", "column", "winloss"
+  - For column charts, use "negcolor" option to set color for negative values
+  - Line charts support "linewidth" option for thicker lines
+  - Bar charts support "max" option to set scale (useful for consistent visualization)
+  - Colors can be specified as hex strings like "#228B22" or color names
+  - When adding columns to Dashboard, ensure ALL row arrays (headers, data, spacers) are updated consistently
+  - The Detailed Categories sheet has monthly data in columns B onwards (A is category name)
+
+---
