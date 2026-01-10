@@ -1410,6 +1410,603 @@ function buildBalanceSheetFormattingRequests(
   return requests;
 }
 
+// Cash Flow Statement row indices (for formatting reference)
+interface CashFlowLayout {
+  headerRow: number;
+  operatingHeaderRow: number;
+  operatingStartRow: number;
+  operatingEndRow: number;  // Net Income From Operations row
+  financingHeaderRow: number;
+  financingStartRow: number;
+  financingEndRow: number;  // Net Financing Activities row
+  netChangeRow: number;
+  beginningCashRow: number;
+  endingCashRow: number;
+  totalRows: number;
+  columnCount: number;
+}
+
+/**
+ * Build Cash Flow Statement data structure
+ * Structure:
+ * - OPERATING ACTIVITIES section: Net Income from P&L
+ * - FINANCING ACTIVITIES section: CC payments, net CC balance change
+ * - NET CHANGE IN CASH calculation
+ * - Beginning and Ending Cash Balance rows
+ *
+ * Color coding per CLAUDE.md standards:
+ * - Green text: Cross-sheet references (Net Income from Income Statement)
+ * - Black text: Same-sheet formulas (calculations)
+ * - Blue text: Beginning cash balance (input)
+ */
+function buildCashFlowData(statement: FinancialStatement, beginningCashBalance: number): {
+  data: (string | number)[][];
+  layout: CashFlowLayout;
+} {
+  const months = statement.months;
+  const monthHeaders = months.map((m) => formatMonthDisplay(m.month));
+  const data: (string | number)[][] = [];
+
+  // Reference the Income Statement sheet for NET INCOME row
+  // We need to find the NET INCOME row in Income Statement
+  const incomeStatementData = buildIncomeStatementData(statement);
+  const netIncomeRowInIS = incomeStatementData.layout.netIncomeRow + 1; // 1-indexed for Sheets
+
+  // Row 0: Header row
+  data.push(["CASH FLOW STATEMENT", ...monthHeaders, "Total", "Monthly Avg"]);
+  const headerRow = 0;
+
+  // Row 1: Empty spacer
+  data.push([]);
+
+  // ========== OPERATING ACTIVITIES SECTION ==========
+  // Row 2: OPERATING ACTIVITIES header
+  data.push(["OPERATING ACTIVITIES", ...months.map(() => ""), "", ""]);
+  const operatingHeaderRow = 2;
+
+  // Row 3: Net Income (reference to Income Statement)
+  const operatingStartRow = 3;
+  // Cross-sheet reference to Income Statement's NET INCOME row (green text)
+  const netIncomeFormulas = months.map((_, colIdx) => {
+    const colLetter = getColumnLetter(colIdx + 1);
+    return `='Income Statement'!${colLetter}${netIncomeRowInIS}`;
+  });
+  const totalColLetter = getColumnLetter(months.length + 1);
+  const avgColLetter = getColumnLetter(months.length + 2);
+
+  data.push([
+    "  Net Income (from P&L)",
+    ...netIncomeFormulas,
+    `='Income Statement'!${totalColLetter}${netIncomeRowInIS}`,
+    `='Income Statement'!${avgColLetter}${netIncomeRowInIS}`,
+  ]);
+
+  // Row 4: Net Income From Operations (same as Net Income for now - could add adjustments later)
+  const netOperatingFormulas = months.map((_, colIdx) => {
+    const colLetter = getColumnLetter(colIdx + 1);
+    return `=${colLetter}${operatingStartRow + 1}`; // Reference Net Income row
+  });
+
+  data.push([
+    "NET INCOME FROM OPERATIONS",
+    ...netOperatingFormulas,
+    `=${totalColLetter}${operatingStartRow + 1}`,
+    `=${avgColLetter}${operatingStartRow + 1}`,
+  ]);
+  const operatingEndRow = data.length - 1; // 4
+
+  // Row 5: Empty spacer
+  data.push([]);
+
+  // ========== FINANCING ACTIVITIES SECTION ==========
+  // Row 6: FINANCING ACTIVITIES header
+  data.push(["FINANCING ACTIVITIES", ...months.map(() => ""), "", ""]);
+  const financingHeaderRow = data.length - 1; // 6
+
+  // Row 7: Credit Card Payments (from MonthlyFinancials transfers.creditCardPayments)
+  const financingStartRow = data.length;
+  const ccPaymentsValues = months.map((m) => -m.transfers.creditCardPayments); // Negative - cash outflow to CC
+  data.push([
+    "  Credit Card Payments",
+    ...ccPaymentsValues,
+    ccPaymentsValues.reduce((sum, val) => sum + val, 0),
+    ccPaymentsValues.reduce((sum, val) => sum + val, 0) / months.length,
+  ]);
+
+  // Row 8: Internal Transfers (excluded from cash flow - informational only)
+  const internalTransfersValues = months.map((m) => m.transfers.internal);
+  data.push([
+    "  Internal Transfers (excluded)",
+    ...internalTransfersValues,
+    internalTransfersValues.reduce((sum, val) => sum + val, 0),
+    internalTransfersValues.reduce((sum, val) => sum + val, 0) / months.length,
+  ]);
+
+  // Row 9: Net Financing Activities
+  // For now, just CC payments (internal transfers don't affect cash position)
+  const netFinancingFormulas = months.map((_, colIdx) => {
+    const colLetter = getColumnLetter(colIdx + 1);
+    return `=${colLetter}${financingStartRow + 1}`; // Just CC payments row
+  });
+
+  data.push([
+    "NET FINANCING ACTIVITIES",
+    ...netFinancingFormulas,
+    `=${totalColLetter}${financingStartRow + 1}`,
+    `=${avgColLetter}${financingStartRow + 1}`,
+  ]);
+  const financingEndRow = data.length - 1; // 9
+
+  // Row 10: Empty spacer
+  data.push([]);
+  data.push([]);
+
+  // ========== NET CHANGE IN CASH ==========
+  // Row 12: NET CHANGE IN CASH = Net Operating + Net Financing
+  const netChangeFormulas = months.map((_, colIdx) => {
+    const colLetter = getColumnLetter(colIdx + 1);
+    return `=${colLetter}${operatingEndRow + 1}+${colLetter}${financingEndRow + 1}`;
+  });
+
+  data.push([
+    "NET CHANGE IN CASH",
+    ...netChangeFormulas,
+    `=${totalColLetter}${operatingEndRow + 1}+${totalColLetter}${financingEndRow + 1}`,
+    `=${avgColLetter}${operatingEndRow + 1}+${avgColLetter}${financingEndRow + 1}`,
+  ]);
+  const netChangeRow = data.length - 1;
+
+  // Row 13: Empty spacer
+  data.push([]);
+
+  // ========== CASH BALANCE RECONCILIATION ==========
+  // Row 14: Beginning Cash Balance (input - blue text)
+  // For simplicity, we use the provided beginning balance and calculate running totals
+  const beginningCashBalances: number[] = [];
+  let runningBalance = beginningCashBalance;
+  for (let i = 0; i < months.length; i++) {
+    beginningCashBalances.push(runningBalance);
+    // Calculate this month's change
+    const monthNetOperating = months[i].netCashFlow; // Net income
+    const monthNetFinancing = -months[i].transfers.creditCardPayments;
+    runningBalance += (monthNetOperating + monthNetFinancing);
+  }
+
+  data.push([
+    "Beginning Cash Balance",
+    ...beginningCashBalances,
+    beginningCashBalances[0], // Period start = first month's beginning
+    "", // No average for beginning balance
+  ]);
+  const beginningCashRow = data.length - 1;
+
+  // Row 15: Ending Cash Balance = Beginning + Net Change
+  const endingCashFormulas = months.map((_, colIdx) => {
+    const colLetter = getColumnLetter(colIdx + 1);
+    return `=${colLetter}${beginningCashRow + 1}+${colLetter}${netChangeRow + 1}`;
+  });
+
+  data.push([
+    "Ending Cash Balance",
+    ...endingCashFormulas,
+    `=${totalColLetter}${beginningCashRow + 1}+${totalColLetter}${netChangeRow + 1}`,
+    "", // No average for ending balance
+  ]);
+  const endingCashRow = data.length - 1;
+
+  // Row 16: Empty spacer
+  data.push([]);
+
+  // Row 17: Note about cash flow
+  data.push(["Note: This cash flow excludes internal transfers between your own accounts.", "", "", ""]);
+
+  const layout: CashFlowLayout = {
+    headerRow,
+    operatingHeaderRow,
+    operatingStartRow,
+    operatingEndRow,
+    financingHeaderRow,
+    financingStartRow,
+    financingEndRow,
+    netChangeRow,
+    beginningCashRow,
+    endingCashRow,
+    totalRows: data.length,
+    columnCount: months.length + 3, // Category + months + Total + Avg
+  };
+
+  return { data, layout };
+}
+
+/**
+ * Build formatting requests for the Cash Flow Statement
+ * Applies financial analyst color coding per CLAUDE.md standards:
+ * - Green text: Cross-sheet references (Net Income from Income Statement)
+ * - Black text: Same-sheet formulas (calculations)
+ * - Blue text: Beginning cash balance (hard-coded input)
+ */
+function buildCashFlowFormattingRequests(
+  sheetId: number,
+  layout: CashFlowLayout,
+  monthCount: number
+): sheets_v4.Schema$Request[] {
+  const requests: sheets_v4.Schema$Request[] = [];
+  const { columnCount } = layout;
+
+  // 1. Freeze header row and first column for navigation
+  requests.push({
+    updateSheetProperties: {
+      properties: {
+        sheetId,
+        gridProperties: { frozenRowCount: 1, frozenColumnCount: 1 },
+      },
+      fields: "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
+    },
+  });
+
+  // 2. Title row styling (Row 0) - Dark header
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.headerBg,
+          horizontalAlignment: "CENTER",
+          textFormat: {
+            foregroundColor: COLORS.headerText,
+            fontSize: 12,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+    },
+  });
+
+  // 3. Section header styling (OPERATING ACTIVITIES, FINANCING ACTIVITIES)
+  const sectionHeaderRows = [layout.operatingHeaderRow, layout.financingHeaderRow];
+  for (const row of sectionHeaderRows) {
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: row, endRowIndex: row + 1 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: COLORS.sectionBg,
+            textFormat: {
+              foregroundColor: FINANCIAL_COLORS.formulaBlack,
+              fontSize: 11,
+              bold: true,
+            },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat)",
+      },
+    });
+  }
+
+  // 4. NET INCOME FROM OPERATIONS row styling - bold with highlight
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.operatingEndRow, endRowIndex: layout.operatingEndRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.totalRowBg,
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.formulaBlack, // Black for same-sheet formulas
+            fontSize: 10,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+    },
+  });
+
+  // 5. NET FINANCING ACTIVITIES row styling
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.financingEndRow, endRowIndex: layout.financingEndRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.totalRowBg,
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.formulaBlack, // Black for same-sheet formulas
+            fontSize: 10,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+    },
+  });
+
+  // 6. NET CHANGE IN CASH row styling - prominent with dark background
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.netChangeRow, endRowIndex: layout.netChangeRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.headerBg,
+          textFormat: {
+            foregroundColor: COLORS.headerText,
+            fontSize: 12,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+    },
+  });
+
+  // 7. Apply GREEN text for cross-sheet reference cells (Net Income from P&L)
+  // Row: operatingStartRow (Net Income from P&L)
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.operatingStartRow,
+        endRowIndex: layout.operatingStartRow + 1,
+        startColumnIndex: 1, // Skip category label column
+        endColumnIndex: columnCount,
+      },
+      cell: {
+        userEnteredFormat: {
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.crossRefGreen, // Green for cross-sheet references
+          },
+        },
+      },
+      fields: "userEnteredFormat.textFormat.foregroundColor",
+    },
+  });
+
+  // 8. Apply BLUE text for Beginning Cash Balance (hard-coded input)
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.beginningCashRow,
+        endRowIndex: layout.beginningCashRow + 1,
+        startColumnIndex: 1, // Skip category label column
+        endColumnIndex: monthCount + 2, // Just the monthly values and period total (not avg)
+      },
+      cell: {
+        userEnteredFormat: {
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.inputBlue, // Blue for hard-coded inputs
+          },
+        },
+      },
+      fields: "userEnteredFormat.textFormat.foregroundColor",
+    },
+  });
+
+  // 9. Ending Cash Balance row styling
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.endingCashRow, endRowIndex: layout.endingCashRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.totalRowBg,
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.formulaBlack, // Black for same-sheet formulas
+            fontSize: 10,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+    },
+  });
+
+  // 10. Currency format for all data cells
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: 1, // Skip header
+        startColumnIndex: 1, // Skip category column
+        endColumnIndex: columnCount,
+      },
+      cell: {
+        userEnteredFormat: {
+          numberFormat: { type: "CURRENCY", pattern: "$#,##0.00" },
+          horizontalAlignment: "RIGHT",
+        },
+      },
+      fields: "userEnteredFormat(numberFormat,horizontalAlignment)",
+    },
+  });
+
+  // 11. Conditional formatting for NET CHANGE IN CASH - green when positive, red when negative
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: layout.netChangeRow,
+          endRowIndex: layout.netChangeRow + 1,
+          startColumnIndex: 1,
+          endColumnIndex: columnCount,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_GREATER",
+            values: [{ userEnteredValue: "0" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.positiveGreenBg,
+            textFormat: {
+              foregroundColor: COLORS.positiveCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 0,
+    },
+  });
+
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: layout.netChangeRow,
+          endRowIndex: layout.netChangeRow + 1,
+          startColumnIndex: 1,
+          endColumnIndex: columnCount,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_LESS",
+            values: [{ userEnteredValue: "0" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.negativeRedBg,
+            textFormat: {
+              foregroundColor: COLORS.negativeCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 1,
+    },
+  });
+
+  // 12. Set column widths
+  // First column (category labels) - wider
+  requests.push({
+    updateDimensionProperties: {
+      range: {
+        sheetId,
+        dimension: "COLUMNS",
+        startIndex: 0,
+        endIndex: 1,
+      },
+      properties: { pixelSize: 220 },
+      fields: "pixelSize",
+    },
+  });
+
+  // Month columns - standard width
+  for (let i = 1; i <= monthCount; i++) {
+    requests.push({
+      updateDimensionProperties: {
+        range: {
+          sheetId,
+          dimension: "COLUMNS",
+          startIndex: i,
+          endIndex: i + 1,
+        },
+        properties: { pixelSize: 100 },
+        fields: "pixelSize",
+      },
+    });
+  }
+
+  // Total and Avg columns - slightly wider
+  requests.push({
+    updateDimensionProperties: {
+      range: {
+        sheetId,
+        dimension: "COLUMNS",
+        startIndex: monthCount + 1,
+        endIndex: columnCount,
+      },
+      properties: { pixelSize: 110 },
+      fields: "pixelSize",
+    },
+  });
+
+  // 13. Add borders around the entire statement
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: 0,
+        endRowIndex: layout.totalRows,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount,
+      },
+      top: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      left: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      right: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      innerHorizontal: { style: "SOLID", width: 1, color: COLORS.lightBorder },
+      innerVertical: { style: "SOLID", width: 1, color: COLORS.lightBorder },
+    },
+  });
+
+  // 14. Add thicker borders around major sections
+  // Border below NET INCOME FROM OPERATIONS
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: layout.operatingEndRow,
+        endRowIndex: layout.operatingEndRow + 1,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount,
+      },
+      bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+    },
+  });
+
+  // Border below NET FINANCING ACTIVITIES
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: layout.financingEndRow,
+        endRowIndex: layout.financingEndRow + 1,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount,
+      },
+      bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+    },
+  });
+
+  // Border above and below NET CHANGE IN CASH
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: layout.netChangeRow,
+        endRowIndex: layout.netChangeRow + 1,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount,
+      },
+      top: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+    },
+  });
+
+  // 15. Style the note row at the bottom
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.totalRows - 1,
+        endRowIndex: layout.totalRows,
+      },
+      cell: {
+        userEnteredFormat: {
+          textFormat: {
+            fontSize: 9,
+            italic: true,
+            foregroundColor: { red: 0.5, green: 0.5, blue: 0.5 },
+          },
+        },
+      },
+      fields: "userEnteredFormat.textFormat",
+    },
+  });
+
+  return requests;
+}
+
 /**
  * Build dashboard sheet data with section headers and formula-driven values
  * Dashboard is the executive summary - first sheet users see
@@ -3176,13 +3773,14 @@ export async function createFinancialSpreadsheet(
     { properties: { title: "Dashboard", index: 0 } },
     { properties: { title: "Income Statement", index: 1 } },
     { properties: { title: "Balance Sheet", index: 2 } },
-    { properties: { title: "Summary", index: 3 } },
-    { properties: { title: "Detailed Categories", index: 4 } },
+    { properties: { title: "Cash Flow", index: 3 } },
+    { properties: { title: "Summary", index: 4 } },
+    { properties: { title: "Detailed Categories", index: 5 } },
   ];
 
   // Add Transactions sheet if transactions are provided
   if (transactions && transactions.length > 0) {
-    sheetDefinitions.push({ properties: { title: "Transactions", index: 5 } });
+    sheetDefinitions.push({ properties: { title: "Transactions", index: 6 } });
   }
 
   const spreadsheet = await sheets.spreadsheets.create({
@@ -3199,10 +3797,11 @@ export async function createFinancialSpreadsheet(
   const dashboardSheetId = spreadsheet.data.sheets![0].properties!.sheetId!;
   const incomeStatementSheetId = spreadsheet.data.sheets![1].properties!.sheetId!;
   const balanceSheetId = spreadsheet.data.sheets![2].properties!.sheetId!;
-  const summarySheetId = spreadsheet.data.sheets![3].properties!.sheetId!;
-  const detailedSheetId = spreadsheet.data.sheets![4].properties!.sheetId!;
+  const cashFlowSheetId = spreadsheet.data.sheets![3].properties!.sheetId!;
+  const summarySheetId = spreadsheet.data.sheets![4].properties!.sheetId!;
+  const detailedSheetId = spreadsheet.data.sheets![5].properties!.sheetId!;
   const transactionsSheetId = transactions && transactions.length > 0
-    ? spreadsheet.data.sheets![5].properties!.sheetId!
+    ? spreadsheet.data.sheets![6].properties!.sheetId!
     : null;
 
   // 2. Build data for all sheets
@@ -3220,10 +3819,16 @@ export async function createFinancialSpreadsheet(
     credit: balanceSheet.liabilities.creditCardDebt.accounts.length,
   };
 
+  // Build Cash Flow Statement data
+  // Use total liquid assets as beginning cash balance (point-in-time estimate)
+  const beginningCashBalance = balanceSheet.assets.totalAssets;
+  const { data: cashFlowData, layout: cashFlowLayout } = buildCashFlowData(statement, beginningCashBalance);
+
   const dataUpdates: { range: string; values: (string | number)[][] }[] = [
     { range: "Dashboard!A1", values: dashboardData },
     { range: "'Income Statement'!A1", values: incomeStatementData },
     { range: "'Balance Sheet'!A1", values: balanceSheetData },
+    { range: "'Cash Flow'!A1", values: cashFlowData },
     { range: "Summary!A1", values: buildSummaryData(statement) },
     { range: "'Detailed Categories'!A1", values: buildDetailedData(statement) },
   ];
@@ -3249,6 +3854,7 @@ export async function createFinancialSpreadsheet(
     ...buildDashboardFormattingRequests(dashboardSheetId, dashboardLayout),
     ...buildIncomeStatementFormattingRequests(incomeStatementSheetId, incomeStatementLayout, statement.months.length),
     ...buildBalanceSheetFormattingRequests(balanceSheetId, balanceSheetLayout, accountCount),
+    ...buildCashFlowFormattingRequests(cashFlowSheetId, cashFlowLayout, statement.months.length),
     ...buildSummaryFormattingRequests(summarySheetId, statement),
     ...buildDetailedFormattingRequests(detailedSheetId, statement),
   ];
