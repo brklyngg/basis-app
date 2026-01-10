@@ -53,7 +53,148 @@ interface DashboardLayout {
 }
 
 /**
- * Build dashboard sheet data with section headers and placeholder values
+ * Find row indices in Summary sheet for key metrics
+ * This allows Dashboard to reference Summary data with formulas
+ */
+function findSummaryRowIndices(statement: FinancialStatement): {
+  totalIncomeRow: number;
+  totalExpensesRow: number;
+  netCashFlowRow: number;
+  savingsRateRow: number;
+  lastDataColumn: string; // e.g., "G" for column with Total
+  avgColumn: string; // e.g., "H" for column with Monthly Avg
+} {
+  // Build the summary data to find row positions
+  const summaryData = buildSummaryData(statement);
+
+  // Find row indices (1-indexed for Sheets formulas)
+  let totalIncomeRow = -1;
+  let totalExpensesRow = -1;
+  let netCashFlowRow = -1;
+  let savingsRateRow = -1;
+
+  for (let i = 0; i < summaryData.length; i++) {
+    const row = summaryData[i];
+    if (row[1] === "TOTAL INCOME") {
+      totalIncomeRow = i + 1; // 1-indexed for Sheets
+    }
+    if (row[0] === "TOTAL EXPENSES") {
+      totalExpensesRow = i + 1;
+    }
+    if (row[0] === "NET CASH FLOW") {
+      netCashFlowRow = i + 1;
+    }
+    if (row[0] === "SAVINGS RATE") {
+      savingsRateRow = i + 1;
+    }
+  }
+
+  // Calculate the column letters for Total and Avg
+  // Structure: Category, Subcategory, [months...], Total, Avg
+  const monthCount = statement.months.length;
+  const totalColumnIndex = monthCount + 2; // 0-indexed: Cat=0, Sub=1, months, Total
+  const avgColumnIndex = monthCount + 3;
+
+  return {
+    totalIncomeRow,
+    totalExpensesRow,
+    netCashFlowRow,
+    savingsRateRow,
+    lastDataColumn: getColumnLetter(totalColumnIndex),
+    avgColumn: getColumnLetter(avgColumnIndex),
+  };
+}
+
+/**
+ * Convert column index to letter (0 = A, 1 = B, etc.)
+ */
+function getColumnLetter(index: number): string {
+  let result = "";
+  let n = index;
+  while (n >= 0) {
+    result = String.fromCharCode((n % 26) + 65) + result;
+    n = Math.floor(n / 26) - 1;
+  }
+  return result;
+}
+
+/**
+ * Build trend text for income or expenses
+ * Compares most recent month to prior month
+ */
+function buildTrendText(
+  months: MonthlyFinancials[],
+  metric: "income" | "expenses"
+): string {
+  if (months.length < 2) {
+    return "—"; // Not enough data for trend
+  }
+
+  const current = months[months.length - 1];
+  const prior = months[months.length - 2];
+
+  let currentVal: number;
+  let priorVal: number;
+
+  if (metric === "income") {
+    currentVal = current.income.total;
+    priorVal = prior.income.total;
+  } else {
+    currentVal = current.expenses.total;
+    priorVal = prior.expenses.total;
+  }
+
+  if (priorVal === 0) {
+    return currentVal > 0 ? "↑ New" : "—";
+  }
+
+  const change = currentVal - priorVal;
+  const percentChange = (change / priorVal) * 100;
+
+  // For income, up is good. For expenses, down is good.
+  const arrow = change > 0 ? "↑" : change < 0 ? "↓" : "→";
+  const absPercent = Math.abs(percentChange).toFixed(0);
+
+  if (metric === "income") {
+    // Income: up = positive trend, down = negative trend
+    if (change > 0) {
+      return `${arrow} ${absPercent}% vs prior`;
+    } else if (change < 0) {
+      return `${arrow} ${absPercent}% vs prior`;
+    }
+  } else {
+    // Expenses: down = positive trend, up = negative trend
+    if (change < 0) {
+      return `${arrow} ${absPercent}% vs prior`;
+    } else if (change > 0) {
+      return `${arrow} ${absPercent}% vs prior`;
+    }
+  }
+
+  return "→ Stable";
+}
+
+/**
+ * Build cash flow trend text based on MoM percentage change
+ */
+function buildCashFlowTrendText(momPercentage: number): string {
+  if (momPercentage === 0) {
+    return "→ Stable";
+  }
+
+  const arrow = momPercentage > 0 ? "↑" : "↓";
+  const absPercent = Math.abs(momPercentage).toFixed(0);
+  const direction = momPercentage > 5 ? "Improving" : momPercentage < -5 ? "Declining" : "Stable";
+
+  if (direction === "Stable") {
+    return "→ Stable";
+  }
+
+  return `${arrow} ${absPercent}% (${direction})`;
+}
+
+/**
+ * Build dashboard sheet data with section headers and formula-driven values
  * Dashboard is the executive summary - first sheet users see
  */
 function buildDashboardData(statement: FinancialStatement): {
@@ -62,6 +203,22 @@ function buildDashboardData(statement: FinancialStatement): {
 } {
   const data: (string | number)[][] = [];
   const dateRangeStr = `${formatMonthDisplay(statement.dateRange.start)} - ${formatMonthDisplay(statement.dateRange.end)}`;
+
+  // Find Summary sheet row indices for formulas
+  const summaryIndices = findSummaryRowIndices(statement);
+  const { totalIncomeRow, totalExpensesRow, netCashFlowRow, lastDataColumn, avgColumn } = summaryIndices;
+
+  // Calculate trend text based on month-over-month data
+  const months = statement.months;
+  const currentMonthCF = months.length > 0 ? months[months.length - 1].netCashFlow : 0;
+  const priorMonthCF = months.length > 1 ? months[months.length - 2].netCashFlow : 0;
+  const momChange = currentMonthCF - priorMonthCF;
+  const momPercentage = priorMonthCF !== 0 ? (momChange / Math.abs(priorMonthCF)) * 100 : 0;
+
+  // Build trend indicators
+  const incomeTrendText = buildTrendText(months, "income");
+  const expensesTrendText = buildTrendText(months, "expenses");
+  const cashFlowTrendText = buildCashFlowTrendText(momPercentage);
 
   // Row 0: Title
   data.push([`Financial Dashboard`, "", "", dateRangeStr]);
@@ -79,10 +236,26 @@ function buildDashboardData(statement: FinancialStatement): {
   data.push(["Metric", "Period Total", "Monthly Average", "Trend"]);
   const bigPictureStartRow = 3;
 
-  // Row 4-6: Big Picture metrics (placeholders - to be formula-driven in US-006)
-  data.push(["Total Income", "$0.00", "$0.00", ""]);
-  data.push(["Total Expenses", "$0.00", "$0.00", ""]);
-  data.push(["Net Cash Flow", "$0.00", "$0.00", ""]);
+  // Row 4-6: Big Picture metrics with formulas referencing Summary sheet
+  // Using formulas to reference Summary sheet - values update if source changes
+  data.push([
+    "Total Income",
+    `='Summary'!${lastDataColumn}${totalIncomeRow}`,
+    `='Summary'!${avgColumn}${totalIncomeRow}`,
+    incomeTrendText,
+  ]);
+  data.push([
+    "Total Expenses",
+    `='Summary'!${lastDataColumn}${totalExpensesRow}`,
+    `='Summary'!${avgColumn}${totalExpensesRow}`,
+    expensesTrendText,
+  ]);
+  data.push([
+    "Net Cash Flow",
+    `='Summary'!${lastDataColumn}${netCashFlowRow}`,
+    `='Summary'!${avgColumn}${netCashFlowRow}`,
+    cashFlowTrendText,
+  ]);
   const bigPictureEndRow = 6;
 
   // Row 7: Empty spacer
@@ -405,6 +578,108 @@ function buildDashboardFormattingRequests(
         },
       },
       fields: "userEnteredFormat.textFormat",
+    },
+  });
+
+  // 10. Currency format for Big Picture data cells (columns B and C, rows 5-7)
+  // Row indices: bigPictureStartRow + 1 = 4 (0-indexed), through bigPictureEndRow = 6
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.bigPictureStartRow + 1, // Data rows start after header
+        endRowIndex: layout.bigPictureEndRow + 1,
+        startColumnIndex: 1, // Column B (Period Total)
+        endColumnIndex: 3,   // Column C (Monthly Average)
+      },
+      cell: {
+        userEnteredFormat: {
+          numberFormat: { type: "CURRENCY", pattern: "$#,##0.00" },
+          horizontalAlignment: "RIGHT",
+        },
+      },
+      fields: "userEnteredFormat(numberFormat,horizontalAlignment)",
+    },
+  });
+
+  // 11. Apply green text color for Big Picture formulas (cross-sheet references)
+  // Per financial analyst standards, green text = cross-sheet references
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.bigPictureStartRow + 1, // Data rows
+        endRowIndex: layout.bigPictureEndRow + 1,
+        startColumnIndex: 1, // Period Total and Monthly Average columns
+        endColumnIndex: 3,
+      },
+      cell: {
+        userEnteredFormat: {
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.crossRefGreen,
+          },
+        },
+      },
+      fields: "userEnteredFormat.textFormat.foregroundColor",
+    },
+  });
+
+  // 12. Conditional formatting for Net Cash Flow row - green background when positive
+  // Net Cash Flow row is bigPictureEndRow (row 6, 0-indexed)
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: layout.bigPictureEndRow, // Net Cash Flow row
+          endRowIndex: layout.bigPictureEndRow + 1,
+          startColumnIndex: 1, // Period Total column
+          endColumnIndex: 3,   // Through Monthly Average
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_GREATER",
+            values: [{ userEnteredValue: "0" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.positiveGreenBg,
+            textFormat: {
+              foregroundColor: COLORS.positiveCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 0,
+    },
+  });
+
+  // 13. Conditional formatting for Net Cash Flow row - red background when negative
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: layout.bigPictureEndRow, // Net Cash Flow row
+          endRowIndex: layout.bigPictureEndRow + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 3,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_LESS",
+            values: [{ userEnteredValue: "0" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.negativeRedBg,
+            textFormat: {
+              foregroundColor: COLORS.negativeCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 1,
     },
   });
 
