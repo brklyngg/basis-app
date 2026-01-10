@@ -53,6 +53,12 @@ Use FINANCIAL_COLORS constants in google-sheets.ts for consistent application.
 - `/mcp list` - Verify Google Drive MCP is connected
 - After writing to sheets, verify with `sheets_read_range` or browser screenshot
 
+### Cross-Sheet Formulas in Google Sheets
+- Use `='SheetName'!ColumnRow` format (e.g., `='Summary'!F7`)
+- To dynamically find rows, build the data array and search for labels
+- Use `getColumnLetter(index)` to convert 0-based index to column letter (0=A, 1=B, etc.)
+- Formula text must be written as strings to the data array - Google Sheets interprets `=` as formula
+
 ### Reconciliation Requirements (CRITICAL)
 The spreadsheet must include internal checks that tie to bank reality:
 
@@ -196,5 +202,33 @@ This ensures the user knows they're working with complete, accurate data.
   - Placeholder values like "$0.00" are literal strings now - US-006 will replace them with formulas
   - The spreadsheet title was updated from "Financial Statement" to "Financial Dashboard" to reflect the new focus
   - Google Sheets API batchUpdate processes requests in order, so Dashboard formatting runs first
+
+---
+
+## 2025-01-09 23:43 - US-006
+- What was implemented:
+  - Added formula-driven values to Big Picture section referencing Summary sheet
+  - Total Income, Total Expenses, Net Cash Flow now use `='Summary'!{col}{row}` formulas
+  - Added `findSummaryRowIndices()` to dynamically locate metric rows in Summary sheet
+  - Added `getColumnLetter()` helper to convert column index to letter (A, B, C, etc.)
+  - Added `buildTrendText()` for income/expense MoM trend indicators
+  - Added `buildCashFlowTrendText()` for net cash flow trend with direction
+  - Trend text shows arrows (↑↓→), percentage change, and direction (Improving/Declining/Stable)
+  - Applied currency formatting ($#,##0.00) to Period Total and Monthly Average columns
+  - Applied green text color to formula cells (cross-sheet reference standard)
+  - Added conditional formatting for Net Cash Flow row:
+    - Positive: Green background + green bold text
+    - Negative: Red background + red bold text
+
+- Files changed:
+  - `src/lib/google-sheets.ts` - Added helper functions and updated buildDashboardData() and buildDashboardFormattingRequests() (+280 lines)
+
+- **Learnings for future iterations:**
+  - Summary sheet row positions must be calculated by building the data and searching for row labels
+  - Column letters for formulas: `getColumnLetter(index)` where index is 0-based (0=A, 1=B, etc.)
+  - Google Sheets formula format: `='SheetName'!ColumnRow` (e.g., `='Summary'!F7`)
+  - Conditional formatting with `NUMBER_GREATER` and `NUMBER_LESS` types work with formula-derived values
+  - MonthlyFinancials type contains `income.total` and `expenses.total` for trend calculations
+  - For MoM percentage change when prior period is zero: use 100/-100 as indicator, not infinity
 
 ---

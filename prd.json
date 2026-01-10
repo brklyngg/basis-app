@@ -97,8 +97,8 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented with cross-sheet formulas (='Summary'!col$row), conditional formatting (green/red bg+text for net cash flow), and trend indicator text showing MoM % change"
     },
     {
       "id": "US-007",
