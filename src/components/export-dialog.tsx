@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { FileSpreadsheet, Loader2, ExternalLink, Link2 } from "lucide-react";
 import {
   Dialog,
@@ -33,10 +33,18 @@ export function ExportDialog({ disabled }: ExportDialogProps) {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Track if we just returned from OAuth callback to avoid race condition
+  const justReturnedFromOAuth = useRef(false);
+
   // Check Google auth status when dialog opens
   useEffect(() => {
     if (open) {
-      checkGoogleAuth();
+      if (justReturnedFromOAuth.current) {
+        // Skip API check - we trust the OAuth callback result
+        justReturnedFromOAuth.current = false;
+      } else {
+        checkGoogleAuth();
+      }
     }
   }, [open]);
 
@@ -44,8 +52,10 @@ export function ExportDialog({ disabled }: ExportDialogProps) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("google_connected") === "true") {
+      justReturnedFromOAuth.current = true;
       setOpen(true);
       setHasGoogleAuth(true);
+      setIsCheckingAuth(false);
       // Clean up URL
       window.history.replaceState({}, "", window.location.pathname);
     }
