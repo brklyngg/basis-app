@@ -201,8 +201,8 @@
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented with Account column (using accountId), setBasicFilter for header row filters, conditional formatting for internal_transfer (yellow) and credit_card_payment (blue) rows, sorted by date descending"
     },
     {
       "id": "US-013",

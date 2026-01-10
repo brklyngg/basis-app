@@ -393,3 +393,31 @@ This ensures the user knows they're working with complete, accurate data.
   - Running balance calculation: Beginning[n+1] = Ending[n] where Ending = Beginning + Net Change
 
 ---
+
+## 2025-01-10 00:55 - US-012
+- What was implemented:
+  - Enhanced 'Transactions' sheet (index 6) with all transaction data
+  - Updated `buildTransactionsData()` to include Account column (using accountId from Plaid)
+  - Column structure: Date, Description, Amount, Category, Account, Classification
+  - Transactions sorted by date descending (most recent first)
+  - Updated `buildTransactionsFormattingRequests()` with:
+    - setBasicFilter for header row filter dropdowns
+    - Conditional formatting for excluded transactions:
+      - Internal transfers highlighted with light yellow background (RGB: 1, 0.98, 0.85)
+      - Credit card payments highlighted with light blue background (RGB: 0.88, 0.94, 1)
+    - Currency formatting for Amount column
+    - Alternating row colors for readability
+    - Frozen header row for navigation
+  - Classification column shows transaction type: income, essential, discretionary, internal_transfer, credit_card_payment
+
+- Files changed:
+  - `src/lib/google-sheets.ts` - Updated buildTransactionsData() and buildTransactionsFormattingRequests() (+84 lines)
+
+- **Learnings for future iterations:**
+  - Google Sheets `setBasicFilter` enables filter dropdowns on header row - must specify range including all data rows
+  - Conditional formatting rules with index 0 are processed first (higher priority) - add more specific rules first
+  - ClassifiedTransaction.accountId is available from the Transaction interface for account cross-referencing
+  - Removed Month column in favor of Account column (more useful for filtering by source account)
+  - The Transactions sheet serves as source data for formula references in other sheets
+
+---
