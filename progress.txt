@@ -261,3 +261,31 @@ This ensures the user knows they're working with complete, accurate data.
   - The layout object tracks row indices which are 0-indexed; formulas need 1-indexed row references
 
 ---
+
+## 2025-01-10 00:00 - US-008
+- What was implemented:
+  - Added `findTopSpendingCategories()` function to get top 7 spending categories sorted by total descending
+  - Replaced placeholder spending rows with formula-driven category data
+  - Monthly Average formula references Detailed Categories sheet
+  - Percentage of expenses formula calculates category total / total expenses from Summary sheet
+  - REPT() visual bars show proportional spending with 10-block gauge (█ filled, ░ empty)
+  - Empty placeholder rows ("—") shown if fewer than 7 categories have spending
+  - Added formatting rules for spending breakdown section:
+    - Currency format for Monthly Avg column
+    - Percentage format for % of Expenses column
+    - Monospace font (Roboto Mono) for visual bars
+    - Green text for cross-sheet reference cells
+    - Blue-ish color for visual bars (aesthetic choice)
+
+- Files changed:
+  - `src/lib/google-sheets.ts` - Added findTopSpendingCategories(), updated buildDashboardData() and buildDashboardFormattingRequests() (+175 lines)
+
+- **Learnings for future iterations:**
+  - Detailed Categories sheet structure: Category (col A), [months...], Total, Avg
+  - To reference Detailed Categories sheet in formulas: `='Detailed Categories'!ColRow`
+  - The spendingEndRow is now dynamically calculated (`data.length - 1`) since we build rows in a loop
+  - Filter categories with `total > 0` to avoid showing categories with no spending
+  - Use `findIndex()` on the built data array to locate category rows in the sheet
+  - The formula `MAX(1, MIN(10, ROUND(pct*10)))` ensures at least 1 block but caps at 10 for visual balance
+
+---
