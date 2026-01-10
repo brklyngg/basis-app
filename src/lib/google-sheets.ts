@@ -53,6 +53,54 @@ interface DashboardLayout {
 }
 
 /**
+ * Find row indices in Detailed Categories sheet for spending breakdown
+ * Returns top 7 categories sorted by total spend descending
+ */
+function findTopSpendingCategories(statement: FinancialStatement): {
+  categories: {
+    name: string;
+    detailedSheetRow: number; // 1-indexed row in Detailed Categories sheet
+    total: number;
+    average: number;
+  }[];
+  totalColumnLetter: string;
+  avgColumnLetter: string;
+} {
+  // Build detailed data to find row indices
+  const detailedData = buildDetailedData(statement);
+
+  // Sort categories by total spend descending (skip header row)
+  const categoriesWithTotals = statement.detailedCategories
+    .filter((cat) => cat.total > 0) // Only include categories with spending
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 7); // Top 7
+
+  // Find row indices in the detailed sheet for each category
+  const categories = categoriesWithTotals.map((cat) => {
+    // Find row in detailed data (1-indexed for Sheets)
+    const rowIndex = detailedData.findIndex((row) => row[0] === cat.category);
+    return {
+      name: cat.category,
+      detailedSheetRow: rowIndex >= 0 ? rowIndex + 1 : -1, // 1-indexed
+      total: cat.total,
+      average: cat.average,
+    };
+  }).filter((cat) => cat.detailedSheetRow > 0); // Only include found categories
+
+  // Column letters for Total and Avg in Detailed Categories sheet
+  // Structure: Category, [months...], Total, Avg
+  const monthCount = statement.months.length;
+  const totalColumnIndex = monthCount + 1; // 0-indexed: Cat=0, months, Total
+  const avgColumnIndex = monthCount + 2;
+
+  return {
+    categories,
+    totalColumnLetter: getColumnLetter(totalColumnIndex),
+    avgColumnLetter: getColumnLetter(avgColumnIndex),
+  };
+}
+
+/**
  * Find row indices in Summary sheet for key metrics
  * This allows Dashboard to reference Summary data with formulas
  */
@@ -370,15 +418,38 @@ function buildDashboardData(statement: FinancialStatement): {
   data.push(["Category", "Monthly Avg", "% of Expenses", "Visual", ""]);
   const spendingStartRow = 15;
 
-  // Row 16-22: Top spending categories (placeholders - to be formula-driven in US-008)
-  data.push(["Category 1", "$0.00", "0%", "", ""]);
-  data.push(["Category 2", "$0.00", "0%", "", ""]);
-  data.push(["Category 3", "$0.00", "0%", "", ""]);
-  data.push(["Category 4", "$0.00", "0%", "", ""]);
-  data.push(["Category 5", "$0.00", "0%", "", ""]);
-  data.push(["Category 6", "$0.00", "0%", "", ""]);
-  data.push(["Category 7", "$0.00", "0%", "", ""]);
-  const spendingEndRow = 22;
+  // Row 16-22: Top spending categories with formulas
+  // Get top spending categories from detailed categories sheet
+  const spendingData = findTopSpendingCategories(statement);
+  const { categories: topCategories, avgColumnLetter: detailedAvgCol } = spendingData;
+
+  // Add rows for each top category (up to 7)
+  for (let i = 0; i < 7; i++) {
+    if (i < topCategories.length) {
+      const cat = topCategories[i];
+      const rowNum = cat.detailedSheetRow;
+
+      // Monthly Average formula - reference Detailed Categories sheet
+      const avgFormula = `='Detailed Categories'!${detailedAvgCol}${rowNum}`;
+
+      // Percentage of expenses formula
+      // Calculate percentage based on the category's total vs total expenses
+      // Reference the same sheet for the total, calculate percentage
+      const totalCol = spendingData.totalColumnLetter;
+      const pctFormula = `=IF('Summary'!${lastDataColumn}${totalExpensesRow}=0,0,'Detailed Categories'!${totalCol}${rowNum}/'Summary'!${lastDataColumn}${totalExpensesRow})`;
+
+      // Visual bar using REPT() - shows proportional bars for relative spend
+      // Scale: largest category = 10 blocks, others proportional
+      // Formula: REPT("█", MAX(1, ROUND(pct*10))) for up to 10 blocks (100%)
+      const visualFormula = `=REPT("█",MAX(1,MIN(10,ROUND('Detailed Categories'!${totalCol}${rowNum}/'Summary'!${lastDataColumn}${totalExpensesRow}*10))))&REPT("░",10-MAX(1,MIN(10,ROUND('Detailed Categories'!${totalCol}${rowNum}/'Summary'!${lastDataColumn}${totalExpensesRow}*10))))`;
+
+      data.push([cat.name, avgFormula, pctFormula, visualFormula, ""]);
+    } else {
+      // Empty placeholder row if fewer than 7 categories
+      data.push(["—", "", "", "", ""]);
+    }
+  }
+  const spendingEndRow = data.length - 1;
 
   // Row 23: Empty spacer
   data.push([]);
@@ -1121,6 +1192,101 @@ function buildDashboardFormattingRequests(
         },
       },
       index: 2,
+    },
+  });
+
+  // ========== WHERE YOUR MONEY GOES SECTION FORMATTING ==========
+
+  // 23. Currency format for Spending Breakdown "Monthly Avg" column (column B)
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.spendingStartRow + 1, // Data rows start after header
+        endRowIndex: layout.spendingEndRow + 1,
+        startColumnIndex: 1, // Column B (Monthly Avg)
+        endColumnIndex: 2,
+      },
+      cell: {
+        userEnteredFormat: {
+          numberFormat: { type: "CURRENCY", pattern: "$#,##0.00" },
+          horizontalAlignment: "RIGHT",
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.crossRefGreen, // Green for cross-sheet refs
+          },
+        },
+      },
+      fields: "userEnteredFormat(numberFormat,horizontalAlignment,textFormat)",
+    },
+  });
+
+  // 24. Percentage format for Spending Breakdown "% of Expenses" column (column C)
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.spendingStartRow + 1,
+        endRowIndex: layout.spendingEndRow + 1,
+        startColumnIndex: 2, // Column C (% of Expenses)
+        endColumnIndex: 3,
+      },
+      cell: {
+        userEnteredFormat: {
+          numberFormat: { type: "PERCENT", pattern: "0%" },
+          horizontalAlignment: "RIGHT",
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.crossRefGreen,
+          },
+        },
+      },
+      fields: "userEnteredFormat(numberFormat,horizontalAlignment,textFormat)",
+    },
+  });
+
+  // 25. Style the Visual bar column (column D) - monospace font for consistent bar display
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.spendingStartRow + 1,
+        endRowIndex: layout.spendingEndRow + 1,
+        startColumnIndex: 3, // Column D (Visual)
+        endColumnIndex: 4,
+      },
+      cell: {
+        userEnteredFormat: {
+          horizontalAlignment: "LEFT",
+          textFormat: {
+            fontFamily: "Roboto Mono",
+            fontSize: 10,
+            foregroundColor: { red: 0.3, green: 0.5, blue: 0.7 }, // Blue-ish for visual appeal
+          },
+        },
+      },
+      fields: "userEnteredFormat(horizontalAlignment,textFormat)",
+    },
+  });
+
+  // 26. Style the category name column (column A) for spending breakdown
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.spendingStartRow + 1,
+        endRowIndex: layout.spendingEndRow + 1,
+        startColumnIndex: 0, // Column A (Category name)
+        endColumnIndex: 1,
+      },
+      cell: {
+        userEnteredFormat: {
+          horizontalAlignment: "LEFT",
+          textFormat: {
+            fontSize: 10,
+            foregroundColor: FINANCIAL_COLORS.formulaBlack,
+          },
+        },
+      },
+      fields: "userEnteredFormat(horizontalAlignment,textFormat)",
     },
   });
 
