@@ -187,8 +187,8 @@ export async function POST(request: Request) {
       endDate
     );
 
-    // Create Google Sheets spreadsheet with raw transaction data
-    const result = await createFinancialSpreadsheet(accessToken, statement, classifiedTransactions);
+    // Create Google Sheets spreadsheet with raw transaction data and balance sheet
+    const result = await createFinancialSpreadsheet(accessToken, statement, classifiedTransactions, allAccounts);
 
     return NextResponse.json({
       success: true,

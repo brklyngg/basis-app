@@ -1,5 +1,6 @@
 import { google, sheets_v4 } from "googleapis";
-import type { FinancialStatement, MonthlyFinancials, ClassifiedTransaction } from "@/types";
+import type { FinancialStatement, MonthlyFinancials, ClassifiedTransaction, Account, BalanceSheet } from "@/types";
+import { calculateBalanceSheet } from "./financial-metrics";
 import { formatMonthDisplay } from "./financial-statement";
 
 // Professional color palette for financial statements
@@ -847,6 +848,562 @@ function buildIncomeStatementFormattingRequests(
         endColumnIndex: columnCount,
       },
       bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+    },
+  });
+
+  return requests;
+}
+
+// Balance Sheet row indices (for formatting reference)
+interface BalanceSheetLayout {
+  headerRow: number;
+  asOfDateRow: number;
+  assetsHeaderRow: number;
+  assetsStartRow: number;
+  assetsEndRow: number;  // Total Assets row
+  liabilitiesHeaderRow: number;
+  liabilitiesStartRow: number;
+  liabilitiesEndRow: number;  // Total Liabilities row
+  netWorthRow: number;
+  totalRows: number;
+  columnCount: number;
+}
+
+/**
+ * Build Balance Sheet data structure
+ * Structure:
+ * - ASSETS section with Liquid Assets (depository accounts)
+ * - LIABILITIES section with Credit Card Debt
+ * - NET WORTH calculation
+ */
+function buildBalanceSheetData(accounts: Account[]): {
+  data: (string | number)[][];
+  layout: BalanceSheetLayout;
+} {
+  const balanceSheet = calculateBalanceSheet(accounts);
+  const data: (string | number)[][] = [];
+
+  // Format the as-of date
+  const asOfDate = new Date(balanceSheet.asOfDate);
+  const formattedDate = asOfDate.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  // Row 0: Header row
+  data.push(["BALANCE SHEET", "Balance", ""]);
+  const headerRow = 0;
+
+  // Row 1: As of date
+  data.push([`As of: ${formattedDate}`, "", ""]);
+  const asOfDateRow = 1;
+
+  // Row 2: Empty spacer
+  data.push([]);
+
+  // ========== ASSETS SECTION ==========
+  // Row 3: ASSETS header
+  data.push(["ASSETS", "", ""]);
+  const assetsHeaderRow = 3;
+
+  // Row 4: Liquid Assets subheader
+  data.push(["  Liquid Assets", "", ""]);
+  const assetsStartRow = 4;
+
+  // List each depository account
+  for (const account of balanceSheet.assets.liquidAssets.accounts) {
+    const displayName = account.institution
+      ? `    ${account.name} (${account.institution})`
+      : `    ${account.name}`;
+    data.push([displayName, account.balance, ""]);
+  }
+
+  // If no accounts, add a placeholder
+  if (balanceSheet.assets.liquidAssets.accounts.length === 0) {
+    data.push(["    No depository accounts connected", 0, ""]);
+  }
+
+  // Total Liquid Assets row
+  const liquidAssetsTotalRow = data.length;
+  const liquidAssetsStartDataRow = assetsStartRow + 1; // First account row (1-indexed)
+  const liquidAssetsEndDataRow = data.length; // Last account row (1-indexed)
+
+  // Formula to sum liquid assets: =SUM(B{start}:B{end})
+  const liquidAssetsSumFormula = balanceSheet.assets.liquidAssets.accounts.length > 0
+    ? `=SUM(B${liquidAssetsStartDataRow + 1}:B${liquidAssetsEndDataRow})`
+    : "0";
+  data.push(["  Total Liquid Assets", liquidAssetsSumFormula, ""]);
+
+  // Row: Empty spacer before Total Assets
+  data.push([]);
+
+  // TOTAL ASSETS row
+  const totalAssetsRow = data.length;
+  // Total Assets = Total Liquid Assets (for now, only liquid assets)
+  data.push(["TOTAL ASSETS", `=B${liquidAssetsTotalRow + 1}`, ""]);
+  const assetsEndRow = data.length - 1;
+
+  // Row: Empty spacer
+  data.push([]);
+
+  // ========== LIABILITIES SECTION ==========
+  // Row: LIABILITIES header
+  data.push(["LIABILITIES", "", ""]);
+  const liabilitiesHeaderRow = data.length - 1;
+
+  // Row: Credit Card Debt subheader
+  data.push(["  Credit Card Debt", "", ""]);
+  const liabilitiesStartRow = data.length - 1;
+
+  // List each credit card account
+  const creditCardsStartRow = data.length;
+  for (const account of balanceSheet.liabilities.creditCardDebt.accounts) {
+    const displayName = account.institution
+      ? `    ${account.name} (${account.institution})`
+      : `    ${account.name}`;
+    data.push([displayName, account.balance, ""]);
+  }
+
+  // If no credit cards, add a placeholder
+  if (balanceSheet.liabilities.creditCardDebt.accounts.length === 0) {
+    data.push(["    No credit cards connected", 0, ""]);
+  }
+
+  // Total Credit Card Debt row
+  const creditCardsTotalRow = data.length;
+  const creditCardsEndDataRow = data.length; // Last account row (1-indexed)
+
+  // Formula to sum credit card debt
+  const creditCardsSumFormula = balanceSheet.liabilities.creditCardDebt.accounts.length > 0
+    ? `=SUM(B${creditCardsStartRow + 1}:B${creditCardsEndDataRow})`
+    : "0";
+  data.push(["  Total Credit Card Debt", creditCardsSumFormula, ""]);
+
+  // Row: Empty spacer before Total Liabilities
+  data.push([]);
+
+  // TOTAL LIABILITIES row
+  const totalLiabilitiesRow = data.length;
+  // Total Liabilities = Total Credit Card Debt (for now)
+  data.push(["TOTAL LIABILITIES", `=B${creditCardsTotalRow + 1}`, ""]);
+  const liabilitiesEndRow = data.length - 1;
+
+  // Row: Empty spacer
+  data.push([]);
+  data.push([]);
+
+  // ========== NET WORTH SECTION ==========
+  // NET WORTH = TOTAL ASSETS - TOTAL LIABILITIES
+  const netWorthRow = data.length;
+  data.push([
+    "NET WORTH",
+    `=B${totalAssetsRow + 1}-B${totalLiabilitiesRow + 1}`,
+    "",
+  ]);
+
+  // Row: Empty spacer
+  data.push([]);
+
+  // Note about point-in-time snapshot
+  data.push(["Note: This balance sheet reflects account balances at the time of export.", "", ""]);
+
+  const layout: BalanceSheetLayout = {
+    headerRow,
+    asOfDateRow,
+    assetsHeaderRow,
+    assetsStartRow,
+    assetsEndRow,
+    liabilitiesHeaderRow,
+    liabilitiesStartRow,
+    liabilitiesEndRow,
+    netWorthRow,
+    totalRows: data.length,
+    columnCount: 3,
+  };
+
+  return { data, layout };
+}
+
+/**
+ * Build formatting requests for the Balance Sheet
+ * Applies financial analyst color coding per CLAUDE.md standards:
+ * - Blue text: Account balances (hard-coded inputs from Plaid)
+ * - Black text: Same-sheet formulas (SUMs, calculations)
+ */
+function buildBalanceSheetFormattingRequests(
+  sheetId: number,
+  layout: BalanceSheetLayout,
+  accountCount: { liquid: number; credit: number }
+): sheets_v4.Schema$Request[] {
+  const requests: sheets_v4.Schema$Request[] = [];
+  const { columnCount } = layout;
+
+  // 1. Freeze header row and first column for navigation
+  requests.push({
+    updateSheetProperties: {
+      properties: {
+        sheetId,
+        gridProperties: { frozenRowCount: 1, frozenColumnCount: 1 },
+      },
+      fields: "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
+    },
+  });
+
+  // 2. Title row styling (Row 0) - Dark header
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.headerBg,
+          horizontalAlignment: "CENTER",
+          textFormat: {
+            foregroundColor: COLORS.headerText,
+            fontSize: 14,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+    },
+  });
+
+  // 3. As-of date row styling
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.asOfDateRow, endRowIndex: layout.asOfDateRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          horizontalAlignment: "LEFT",
+          textFormat: {
+            foregroundColor: { red: 0.4, green: 0.4, blue: 0.4 },
+            fontSize: 10,
+            italic: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(horizontalAlignment,textFormat)",
+    },
+  });
+
+  // 4. Section header styling (ASSETS, LIABILITIES)
+  const sectionHeaderRows = [layout.assetsHeaderRow, layout.liabilitiesHeaderRow];
+  for (const row of sectionHeaderRows) {
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: row, endRowIndex: row + 1 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: COLORS.sectionBg,
+            textFormat: {
+              foregroundColor: FINANCIAL_COLORS.formulaBlack,
+              fontSize: 11,
+              bold: true,
+            },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat)",
+      },
+    });
+  }
+
+  // 5. Subsection header styling (Liquid Assets, Credit Card Debt)
+  const subsectionRows = [layout.assetsStartRow, layout.liabilitiesStartRow];
+  for (const row of subsectionRows) {
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: row, endRowIndex: row + 1 },
+        cell: {
+          userEnteredFormat: {
+            textFormat: {
+              foregroundColor: FINANCIAL_COLORS.formulaBlack,
+              fontSize: 10,
+              bold: true,
+            },
+          },
+        },
+        fields: "userEnteredFormat.textFormat",
+      },
+    });
+  }
+
+  // 6. TOTAL ASSETS row styling - bold with highlight
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.assetsEndRow, endRowIndex: layout.assetsEndRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.totalRowBg,
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.formulaBlack, // Black for same-sheet formulas
+            fontSize: 11,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+    },
+  });
+
+  // 7. TOTAL LIABILITIES row styling
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.liabilitiesEndRow, endRowIndex: layout.liabilitiesEndRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.totalRowBg,
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.formulaBlack, // Black for same-sheet formulas
+            fontSize: 11,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+    },
+  });
+
+  // 8. NET WORTH row styling - prominent with dark background
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.netWorthRow, endRowIndex: layout.netWorthRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.headerBg,
+          textFormat: {
+            foregroundColor: COLORS.headerText,
+            fontSize: 12,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+    },
+  });
+
+  // 9. Apply BLUE text for account balance cells (hard-coded inputs from Plaid)
+  // Liquid assets account rows
+  if (accountCount.liquid > 0) {
+    const liquidStart = layout.assetsStartRow + 1; // First account row after "Liquid Assets" header
+    const liquidEnd = liquidStart + accountCount.liquid;
+    requests.push({
+      repeatCell: {
+        range: {
+          sheetId,
+          startRowIndex: liquidStart,
+          endRowIndex: liquidEnd,
+          startColumnIndex: 1, // Balance column
+          endColumnIndex: 2,
+        },
+        cell: {
+          userEnteredFormat: {
+            textFormat: {
+              foregroundColor: FINANCIAL_COLORS.inputBlue, // Blue for hard-coded inputs
+            },
+          },
+        },
+        fields: "userEnteredFormat.textFormat.foregroundColor",
+      },
+    });
+  }
+
+  // Credit card account rows
+  if (accountCount.credit > 0) {
+    const creditStart = layout.liabilitiesStartRow + 1; // First account row after "Credit Card Debt" header
+    const creditEnd = creditStart + accountCount.credit;
+    requests.push({
+      repeatCell: {
+        range: {
+          sheetId,
+          startRowIndex: creditStart,
+          endRowIndex: creditEnd,
+          startColumnIndex: 1, // Balance column
+          endColumnIndex: 2,
+        },
+        cell: {
+          userEnteredFormat: {
+            textFormat: {
+              foregroundColor: FINANCIAL_COLORS.inputBlue, // Blue for hard-coded inputs
+            },
+          },
+        },
+        fields: "userEnteredFormat.textFormat.foregroundColor",
+      },
+    });
+  }
+
+  // 10. Currency format for all balance cells
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: 1, // Skip header
+        startColumnIndex: 1, // Balance column
+        endColumnIndex: 2,
+      },
+      cell: {
+        userEnteredFormat: {
+          numberFormat: { type: "CURRENCY", pattern: "$#,##0.00" },
+          horizontalAlignment: "RIGHT",
+        },
+      },
+      fields: "userEnteredFormat(numberFormat,horizontalAlignment)",
+    },
+  });
+
+  // 11. Conditional formatting for NET WORTH - green when positive, red when negative
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: layout.netWorthRow,
+          endRowIndex: layout.netWorthRow + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_GREATER",
+            values: [{ userEnteredValue: "0" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.positiveGreenBg,
+            textFormat: {
+              foregroundColor: COLORS.positiveCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 0,
+    },
+  });
+
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: layout.netWorthRow,
+          endRowIndex: layout.netWorthRow + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_LESS",
+            values: [{ userEnteredValue: "0" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.negativeRedBg,
+            textFormat: {
+              foregroundColor: COLORS.negativeCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 1,
+    },
+  });
+
+  // 12. Set column widths
+  // First column (account names) - wider
+  requests.push({
+    updateDimensionProperties: {
+      range: {
+        sheetId,
+        dimension: "COLUMNS",
+        startIndex: 0,
+        endIndex: 1,
+      },
+      properties: { pixelSize: 280 },
+      fields: "pixelSize",
+    },
+  });
+
+  // Balance column - standard width
+  requests.push({
+    updateDimensionProperties: {
+      range: {
+        sheetId,
+        dimension: "COLUMNS",
+        startIndex: 1,
+        endIndex: 2,
+      },
+      properties: { pixelSize: 130 },
+      fields: "pixelSize",
+    },
+  });
+
+  // 13. Add borders around the entire sheet
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: 0,
+        endRowIndex: layout.totalRows,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount,
+      },
+      top: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      left: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      right: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      innerHorizontal: { style: "SOLID", width: 1, color: COLORS.lightBorder },
+      innerVertical: { style: "SOLID", width: 1, color: COLORS.lightBorder },
+    },
+  });
+
+  // 14. Add thicker borders around major sections
+  // Border below TOTAL ASSETS
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: layout.assetsEndRow,
+        endRowIndex: layout.assetsEndRow + 1,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount,
+      },
+      bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+    },
+  });
+
+  // Border below TOTAL LIABILITIES
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: layout.liabilitiesEndRow,
+        endRowIndex: layout.liabilitiesEndRow + 1,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount,
+      },
+      bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+    },
+  });
+
+  // 15. Style the note row at the bottom
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.totalRows - 1,
+        endRowIndex: layout.totalRows,
+      },
+      cell: {
+        userEnteredFormat: {
+          textFormat: {
+            fontSize: 9,
+            italic: true,
+            foregroundColor: { red: 0.5, green: 0.5, blue: 0.5 },
+          },
+        },
+      },
+      fields: "userEnteredFormat.textFormat",
     },
   });
 
@@ -2601,6 +3158,7 @@ function formatDateRangeTitle(dateRange: { start: string; end: string }): string
  * Create a financial statement spreadsheet in Google Sheets
  * Dashboard is the first sheet (executive summary), followed by:
  * - Income Statement (P&L format)
+ * - Balance Sheet
  * - Summary (legacy format for backward compatibility)
  * - Detailed Categories
  * - Transactions (if provided)
@@ -2608,7 +3166,8 @@ function formatDateRangeTitle(dateRange: { start: string; end: string }): string
 export async function createFinancialSpreadsheet(
   accessToken: string,
   statement: FinancialStatement,
-  transactions?: ClassifiedTransaction[]
+  transactions?: ClassifiedTransaction[],
+  accounts?: Account[]
 ): Promise<{ url: string; id: string }> {
   const sheets = createSheetsClient(accessToken);
 
@@ -2616,13 +3175,14 @@ export async function createFinancialSpreadsheet(
   const sheetDefinitions = [
     { properties: { title: "Dashboard", index: 0 } },
     { properties: { title: "Income Statement", index: 1 } },
-    { properties: { title: "Summary", index: 2 } },
-    { properties: { title: "Detailed Categories", index: 3 } },
+    { properties: { title: "Balance Sheet", index: 2 } },
+    { properties: { title: "Summary", index: 3 } },
+    { properties: { title: "Detailed Categories", index: 4 } },
   ];
 
   // Add Transactions sheet if transactions are provided
   if (transactions && transactions.length > 0) {
-    sheetDefinitions.push({ properties: { title: "Transactions", index: 4 } });
+    sheetDefinitions.push({ properties: { title: "Transactions", index: 5 } });
   }
 
   const spreadsheet = await sheets.spreadsheets.create({
@@ -2638,19 +3198,32 @@ export async function createFinancialSpreadsheet(
   const spreadsheetId = spreadsheet.data.spreadsheetId!;
   const dashboardSheetId = spreadsheet.data.sheets![0].properties!.sheetId!;
   const incomeStatementSheetId = spreadsheet.data.sheets![1].properties!.sheetId!;
-  const summarySheetId = spreadsheet.data.sheets![2].properties!.sheetId!;
-  const detailedSheetId = spreadsheet.data.sheets![3].properties!.sheetId!;
+  const balanceSheetId = spreadsheet.data.sheets![2].properties!.sheetId!;
+  const summarySheetId = spreadsheet.data.sheets![3].properties!.sheetId!;
+  const detailedSheetId = spreadsheet.data.sheets![4].properties!.sheetId!;
   const transactionsSheetId = transactions && transactions.length > 0
-    ? spreadsheet.data.sheets![4].properties!.sheetId!
+    ? spreadsheet.data.sheets![5].properties!.sheetId!
     : null;
 
   // 2. Build data for all sheets
   const { data: dashboardData, layout: dashboardLayout } = buildDashboardData(statement);
   const { data: incomeStatementData, layout: incomeStatementLayout } = buildIncomeStatementData(statement);
 
+  // Build Balance Sheet data from accounts (or empty if no accounts provided)
+  const accountsToUse = accounts ?? [];
+  const { data: balanceSheetData, layout: balanceSheetLayout } = buildBalanceSheetData(accountsToUse);
+
+  // Count accounts for formatting (blue text for input cells)
+  const balanceSheet = calculateBalanceSheet(accountsToUse);
+  const accountCount = {
+    liquid: balanceSheet.assets.liquidAssets.accounts.length,
+    credit: balanceSheet.liabilities.creditCardDebt.accounts.length,
+  };
+
   const dataUpdates: { range: string; values: (string | number)[][] }[] = [
     { range: "Dashboard!A1", values: dashboardData },
     { range: "'Income Statement'!A1", values: incomeStatementData },
+    { range: "'Balance Sheet'!A1", values: balanceSheetData },
     { range: "Summary!A1", values: buildSummaryData(statement) },
     { range: "'Detailed Categories'!A1", values: buildDetailedData(statement) },
   ];
@@ -2675,6 +3248,7 @@ export async function createFinancialSpreadsheet(
   const formattingRequests = [
     ...buildDashboardFormattingRequests(dashboardSheetId, dashboardLayout),
     ...buildIncomeStatementFormattingRequests(incomeStatementSheetId, incomeStatementLayout, statement.months.length),
+    ...buildBalanceSheetFormattingRequests(balanceSheetId, balanceSheetLayout, accountCount),
     ...buildSummaryFormattingRequests(summarySheetId, statement),
     ...buildDetailedFormattingRequests(detailedSheetId, statement),
   ];
