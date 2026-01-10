@@ -61,6 +61,8 @@ function findSummaryRowIndices(statement: FinancialStatement): {
   totalExpensesRow: number;
   netCashFlowRow: number;
   savingsRateRow: number;
+  essentialSubtotalRow: number;
+  discretionarySubtotalRow: number;
   lastDataColumn: string; // e.g., "G" for column with Total
   avgColumn: string; // e.g., "H" for column with Monthly Avg
 } {
@@ -72,20 +74,45 @@ function findSummaryRowIndices(statement: FinancialStatement): {
   let totalExpensesRow = -1;
   let netCashFlowRow = -1;
   let savingsRateRow = -1;
+  let essentialSubtotalRow = -1;
+  let discretionarySubtotalRow = -1;
+  let inEssentialSection = false;
+  let inDiscretionarySection = false;
 
   for (let i = 0; i < summaryData.length; i++) {
     const row = summaryData[i];
+
+    // Track which section we're in
+    if (row[0] === "EXPENSES (Essential)") {
+      inEssentialSection = true;
+      inDiscretionarySection = false;
+    }
+    if (row[0] === "EXPENSES (Discretionary)") {
+      inEssentialSection = false;
+      inDiscretionarySection = true;
+    }
+
     if (row[1] === "TOTAL INCOME") {
       totalIncomeRow = i + 1; // 1-indexed for Sheets
     }
     if (row[0] === "TOTAL EXPENSES") {
       totalExpensesRow = i + 1;
+      inEssentialSection = false;
+      inDiscretionarySection = false;
     }
     if (row[0] === "NET CASH FLOW") {
       netCashFlowRow = i + 1;
     }
     if (row[0] === "SAVINGS RATE") {
       savingsRateRow = i + 1;
+    }
+    // Find SUBTOTAL rows for essential and discretionary sections
+    if (row[1] === "SUBTOTAL") {
+      if (inEssentialSection) {
+        essentialSubtotalRow = i + 1;
+      } else if (inDiscretionarySection) {
+        discretionarySubtotalRow = i + 1;
+      }
     }
   }
 
@@ -100,6 +127,8 @@ function findSummaryRowIndices(statement: FinancialStatement): {
     totalExpensesRow,
     netCashFlowRow,
     savingsRateRow,
+    essentialSubtotalRow,
+    discretionarySubtotalRow,
     lastDataColumn: getColumnLetter(totalColumnIndex),
     avgColumn: getColumnLetter(avgColumnIndex),
   };
@@ -206,7 +235,16 @@ function buildDashboardData(statement: FinancialStatement): {
 
   // Find Summary sheet row indices for formulas
   const summaryIndices = findSummaryRowIndices(statement);
-  const { totalIncomeRow, totalExpensesRow, netCashFlowRow, lastDataColumn, avgColumn } = summaryIndices;
+  const {
+    totalIncomeRow,
+    totalExpensesRow,
+    netCashFlowRow,
+    savingsRateRow,
+    essentialSubtotalRow,
+    discretionarySubtotalRow,
+    lastDataColumn,
+    avgColumn,
+  } = summaryIndices;
 
   // Calculate trend text based on month-over-month data
   const months = statement.months;
@@ -221,7 +259,7 @@ function buildDashboardData(statement: FinancialStatement): {
   const cashFlowTrendText = buildCashFlowTrendText(momPercentage);
 
   // Row 0: Title
-  data.push([`Financial Dashboard`, "", "", dateRangeStr]);
+  data.push([`Financial Dashboard`, "", "", "", dateRangeStr]);
   const titleRow = 0;
 
   // Row 1: Empty spacer
@@ -229,11 +267,11 @@ function buildDashboardData(statement: FinancialStatement): {
 
   // ========== THE BIG PICTURE SECTION ==========
   // Row 2: Section header
-  data.push(["THE BIG PICTURE", "", "", ""]);
+  data.push(["THE BIG PICTURE", "", "", "", ""]);
   const bigPictureHeaderRow = 2;
 
   // Row 3: Column headers for Big Picture
-  data.push(["Metric", "Period Total", "Monthly Average", "Trend"]);
+  data.push(["Metric", "Period Total", "Monthly Average", "Trend", ""]);
   const bigPictureStartRow = 3;
 
   // Row 4-6: Big Picture metrics with formulas referencing Summary sheet
@@ -243,18 +281,21 @@ function buildDashboardData(statement: FinancialStatement): {
     `='Summary'!${lastDataColumn}${totalIncomeRow}`,
     `='Summary'!${avgColumn}${totalIncomeRow}`,
     incomeTrendText,
+    "",
   ]);
   data.push([
     "Total Expenses",
     `='Summary'!${lastDataColumn}${totalExpensesRow}`,
     `='Summary'!${avgColumn}${totalExpensesRow}`,
     expensesTrendText,
+    "",
   ]);
   data.push([
     "Net Cash Flow",
     `='Summary'!${lastDataColumn}${netCashFlowRow}`,
     `='Summary'!${avgColumn}${netCashFlowRow}`,
     cashFlowTrendText,
+    "",
   ]);
   const bigPictureEndRow = 6;
 
@@ -263,17 +304,58 @@ function buildDashboardData(statement: FinancialStatement): {
 
   // ========== KEY RATIOS SECTION ==========
   // Row 8: Section header
-  data.push(["KEY RATIOS", "", "", ""]);
+  data.push(["KEY RATIOS", "", "", "", ""]);
   const keyRatiosHeaderRow = 8;
 
   // Row 9: Column headers for Key Ratios
-  data.push(["Ratio", "Your Value", "Target", "Status"]);
+  // Columns: Ratio, Your Value, Target, Progress Bar, Status
+  data.push(["Ratio", "Your Value", "Target", "Progress", "Status"]);
   const keyRatiosStartRow = 9;
 
-  // Row 10-12: Key Ratio metrics (placeholders - to be formula-driven in US-007)
-  data.push(["Savings Rate", "0%", "20%", ""]);
-  data.push(["Essential Expenses", "0%", "50%", ""]);
-  data.push(["Discretionary Expenses", "0%", "30%", ""]);
+  // Row 10-12: Key Ratio metrics with formulas referencing Summary sheet
+  // Savings Rate formula: Reference the savings rate from Summary sheet
+  // Target: 20%+ is green, 10-20% yellow, <10% red
+  // Progress bar: REPT("█", MIN(10, ROUND(rate*50))) creates up to 10 blocks for 20%+
+  const savingsRateFormula = `='Summary'!${lastDataColumn}${savingsRateRow}`;
+  const savingsProgressFormula = `=REPT("█",MIN(10,ROUND('Summary'!${lastDataColumn}${savingsRateRow}*50)))&REPT("░",10-MIN(10,ROUND('Summary'!${lastDataColumn}${savingsRateRow}*50)))`;
+  const savingsStatusFormula = `=IF('Summary'!${lastDataColumn}${savingsRateRow}>=0.2,"✓ On Track",IF('Summary'!${lastDataColumn}${savingsRateRow}>=0.1,"⚠ Close","⚡ Needs Attention"))`;
+
+  data.push([
+    "Savings Rate",
+    savingsRateFormula,
+    "≥20%",
+    savingsProgressFormula,
+    savingsStatusFormula,
+  ]);
+
+  // Essential Expenses % of Income formula
+  // Target: 50% or less is good, 50-70% yellow, >70% red
+  // Progress bar: REPT at max 100% scale, divided by 10 for 10 blocks
+  const essentialPctFormula = `=IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${essentialSubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})`;
+  const essentialProgressFormula = `=REPT("█",MIN(10,ROUND(IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${essentialSubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})*10)))&REPT("░",10-MIN(10,ROUND(IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${essentialSubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})*10)))`;
+  const essentialStatusFormula = `=IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,"—",IF('Summary'!${lastDataColumn}${essentialSubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow}<=0.5,"✓ Healthy",IF('Summary'!${lastDataColumn}${essentialSubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow}<=0.7,"⚠ Elevated","⚡ High")))`;
+
+  data.push([
+    "Essential Expenses",
+    essentialPctFormula,
+    "≤50%",
+    essentialProgressFormula,
+    essentialStatusFormula,
+  ]);
+
+  // Discretionary Expenses % of Income formula
+  // Target: 30% or less is good, 30-40% yellow, >40% red
+  const discretionaryPctFormula = `=IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${discretionarySubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})`;
+  const discretionaryProgressFormula = `=REPT("█",MIN(10,ROUND(IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${discretionarySubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})*10)))&REPT("░",10-MIN(10,ROUND(IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,0,'Summary'!${lastDataColumn}${discretionarySubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow})*10)))`;
+  const discretionaryStatusFormula = `=IF('Summary'!${lastDataColumn}${totalIncomeRow}=0,"—",IF('Summary'!${lastDataColumn}${discretionarySubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow}<=0.3,"✓ In Control",IF('Summary'!${lastDataColumn}${discretionarySubtotalRow}/'Summary'!${lastDataColumn}${totalIncomeRow}<=0.4,"⚠ Watch Spending","⚡ Overspending")))`;
+
+  data.push([
+    "Discretionary Expenses",
+    discretionaryPctFormula,
+    "≤30%",
+    discretionaryProgressFormula,
+    discretionaryStatusFormula,
+  ]);
   const keyRatiosEndRow = 12;
 
   // Row 13: Empty spacer
@@ -281,21 +363,21 @@ function buildDashboardData(statement: FinancialStatement): {
 
   // ========== WHERE YOUR MONEY GOES SECTION ==========
   // Row 14: Section header
-  data.push(["WHERE YOUR MONEY GOES", "", "", ""]);
+  data.push(["WHERE YOUR MONEY GOES", "", "", "", ""]);
   const spendingHeaderRow = 14;
 
   // Row 15: Column headers for Spending Breakdown
-  data.push(["Category", "Monthly Avg", "% of Expenses", "Visual"]);
+  data.push(["Category", "Monthly Avg", "% of Expenses", "Visual", ""]);
   const spendingStartRow = 15;
 
   // Row 16-22: Top spending categories (placeholders - to be formula-driven in US-008)
-  data.push(["Category 1", "$0.00", "0%", ""]);
-  data.push(["Category 2", "$0.00", "0%", ""]);
-  data.push(["Category 3", "$0.00", "0%", ""]);
-  data.push(["Category 4", "$0.00", "0%", ""]);
-  data.push(["Category 5", "$0.00", "0%", ""]);
-  data.push(["Category 6", "$0.00", "0%", ""]);
-  data.push(["Category 7", "$0.00", "0%", ""]);
+  data.push(["Category 1", "$0.00", "0%", "", ""]);
+  data.push(["Category 2", "$0.00", "0%", "", ""]);
+  data.push(["Category 3", "$0.00", "0%", "", ""]);
+  data.push(["Category 4", "$0.00", "0%", "", ""]);
+  data.push(["Category 5", "$0.00", "0%", "", ""]);
+  data.push(["Category 6", "$0.00", "0%", "", ""]);
+  data.push(["Category 7", "$0.00", "0%", "", ""]);
   const spendingEndRow = 22;
 
   // Row 23: Empty spacer
@@ -303,26 +385,26 @@ function buildDashboardData(statement: FinancialStatement): {
 
   // ========== INSIGHTS SECTION ==========
   // Row 24: Section header
-  data.push(["INSIGHTS", "", "", ""]);
+  data.push(["INSIGHTS", "", "", "", ""]);
   const insightsHeaderRow = 24;
 
   // Row 25: Placeholder explanation
-  data.push(["AI-powered insights will appear here after analysis.", "", "", ""]);
+  data.push(["AI-powered insights will appear here after analysis.", "", "", "", ""]);
   const insightsStartRow = 25;
 
   // Row 26-30: Insight placeholders (to be populated in US-016)
-  data.push(["", "", "", ""]);
-  data.push(["", "", "", ""]);
-  data.push(["", "", "", ""]);
-  data.push(["", "", "", ""]);
-  data.push(["", "", "", ""]);
+  data.push(["", "", "", "", ""]);
+  data.push(["", "", "", "", ""]);
+  data.push(["", "", "", "", ""]);
+  data.push(["", "", "", "", ""]);
+  data.push(["", "", "", "", ""]);
   const insightsEndRow = 30;
 
   // Row 31: Empty row for spacing
   data.push([]);
 
   // Row 32: Note about named ranges (per US-013)
-  data.push(["Note: Use named ranges (TotalIncome, TotalExpenses, NetCashFlow, SavingsRate) to reference key metrics.", "", "", ""]);
+  data.push(["Note: Use named ranges (TotalIncome, TotalExpenses, NetCashFlow, SavingsRate) to reference key metrics.", "", "", "", ""]);
 
   const layout: DashboardLayout = {
     titleRow,
@@ -352,7 +434,7 @@ function buildDashboardFormattingRequests(
   layout: DashboardLayout
 ): sheets_v4.Schema$Request[] {
   const requests: sheets_v4.Schema$Request[] = [];
-  const columnCount = 4; // 4 columns: A through D
+  const columnCount = 5; // 5 columns: A through E (expanded for Key Ratios progress bars)
 
   // 1. Freeze title row and first column for navigation
   requests.push({
@@ -490,9 +572,10 @@ function buildDashboardFormattingRequests(
   // 6. Set column widths for better readability
   const columnWidths = [
     { column: 0, width: 180 }, // Metric/Category names
-    { column: 1, width: 130 }, // Period Total / Monthly Avg
-    { column: 2, width: 130 }, // Monthly Avg / Target
-    { column: 3, width: 150 }, // Trend / Status / Visual
+    { column: 1, width: 130 }, // Period Total / Your Value
+    { column: 2, width: 100 }, // Monthly Avg / Target
+    { column: 3, width: 120 }, // Trend / Progress
+    { column: 4, width: 130 }, // Status
   ];
 
   for (const { column, width } of columnWidths) {
@@ -680,6 +763,364 @@ function buildDashboardFormattingRequests(
         },
       },
       index: 1,
+    },
+  });
+
+  // ========== KEY RATIOS SECTION FORMATTING ==========
+
+  // 14. Percentage format for Key Ratios "Your Value" column (column B, rows 11-13)
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.keyRatiosStartRow + 1, // Data rows start after header
+        endRowIndex: layout.keyRatiosEndRow + 1,
+        startColumnIndex: 1, // Column B (Your Value)
+        endColumnIndex: 2,
+      },
+      cell: {
+        userEnteredFormat: {
+          numberFormat: { type: "PERCENT", pattern: "0%" },
+          horizontalAlignment: "RIGHT",
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.crossRefGreen, // Green for cross-sheet refs
+          },
+        },
+      },
+      fields: "userEnteredFormat(numberFormat,horizontalAlignment,textFormat)",
+    },
+  });
+
+  // 15. Center the Target column (column C)
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.keyRatiosStartRow + 1,
+        endRowIndex: layout.keyRatiosEndRow + 1,
+        startColumnIndex: 2, // Column C (Target)
+        endColumnIndex: 3,
+      },
+      cell: {
+        userEnteredFormat: {
+          horizontalAlignment: "CENTER",
+          textFormat: {
+            foregroundColor: { red: 0.4, green: 0.4, blue: 0.4 }, // Gray for static text
+            italic: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(horizontalAlignment,textFormat)",
+    },
+  });
+
+  // 16. Style the Progress bar column (column D) - monospace font for consistent bar display
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.keyRatiosStartRow + 1,
+        endRowIndex: layout.keyRatiosEndRow + 1,
+        startColumnIndex: 3, // Column D (Progress)
+        endColumnIndex: 4,
+      },
+      cell: {
+        userEnteredFormat: {
+          horizontalAlignment: "LEFT",
+          textFormat: {
+            fontFamily: "Roboto Mono",
+            fontSize: 10,
+            foregroundColor: FINANCIAL_COLORS.formulaBlack,
+          },
+        },
+      },
+      fields: "userEnteredFormat(horizontalAlignment,textFormat)",
+    },
+  });
+
+  // 17. Style the Status column (column E)
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.keyRatiosStartRow + 1,
+        endRowIndex: layout.keyRatiosEndRow + 1,
+        startColumnIndex: 4, // Column E (Status)
+        endColumnIndex: 5,
+      },
+      cell: {
+        userEnteredFormat: {
+          horizontalAlignment: "LEFT",
+          textFormat: {
+            fontSize: 10,
+            foregroundColor: FINANCIAL_COLORS.formulaBlack,
+          },
+        },
+      },
+      fields: "userEnteredFormat(horizontalAlignment,textFormat)",
+    },
+  });
+
+  // 18. Conditional formatting for Savings Rate row - green when on track (>=20%)
+  // Row index: keyRatiosStartRow + 1 (Savings Rate is first data row)
+  const savingsRateRowIdx = layout.keyRatiosStartRow + 1;
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: savingsRateRowIdx,
+          endRowIndex: savingsRateRowIdx + 1,
+          startColumnIndex: 1, // Your Value column
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_GREATER_THAN_EQ",
+            values: [{ userEnteredValue: "0.2" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.positiveGreenBg,
+            textFormat: {
+              foregroundColor: COLORS.positiveCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 0,
+    },
+  });
+
+  // 19. Conditional formatting for Savings Rate - yellow when close (10-20%)
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: savingsRateRowIdx,
+          endRowIndex: savingsRateRowIdx + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "CUSTOM_FORMULA",
+            values: [{ userEnteredValue: `=AND(B${savingsRateRowIdx + 1}>=0.1,B${savingsRateRowIdx + 1}<0.2)` }],
+          },
+          format: {
+            backgroundColor: { red: 1, green: 0.95, blue: 0.8 }, // Light yellow
+            textFormat: {
+              foregroundColor: { red: 0.6, green: 0.5, blue: 0 },
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 1,
+    },
+  });
+
+  // 20. Conditional formatting for Savings Rate - red when concerning (<10%)
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: savingsRateRowIdx,
+          endRowIndex: savingsRateRowIdx + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_LESS",
+            values: [{ userEnteredValue: "0.1" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.negativeRedBg,
+            textFormat: {
+              foregroundColor: COLORS.negativeCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 2,
+    },
+  });
+
+  // 21. Conditional formatting for Essential Expenses row
+  // Green when <= 50%, yellow when 50-70%, red when > 70%
+  const essentialRowIdx = layout.keyRatiosStartRow + 2;
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: essentialRowIdx,
+          endRowIndex: essentialRowIdx + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_LESS_THAN_EQ",
+            values: [{ userEnteredValue: "0.5" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.positiveGreenBg,
+            textFormat: {
+              foregroundColor: COLORS.positiveCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 0,
+    },
+  });
+
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: essentialRowIdx,
+          endRowIndex: essentialRowIdx + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "CUSTOM_FORMULA",
+            values: [{ userEnteredValue: `=AND(B${essentialRowIdx + 1}>0.5,B${essentialRowIdx + 1}<=0.7)` }],
+          },
+          format: {
+            backgroundColor: { red: 1, green: 0.95, blue: 0.8 },
+            textFormat: {
+              foregroundColor: { red: 0.6, green: 0.5, blue: 0 },
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 1,
+    },
+  });
+
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: essentialRowIdx,
+          endRowIndex: essentialRowIdx + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_GREATER",
+            values: [{ userEnteredValue: "0.7" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.negativeRedBg,
+            textFormat: {
+              foregroundColor: COLORS.negativeCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 2,
+    },
+  });
+
+  // 22. Conditional formatting for Discretionary Expenses row
+  // Green when <= 30%, yellow when 30-40%, red when > 40%
+  const discretionaryRowIdx = layout.keyRatiosStartRow + 3;
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: discretionaryRowIdx,
+          endRowIndex: discretionaryRowIdx + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_LESS_THAN_EQ",
+            values: [{ userEnteredValue: "0.3" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.positiveGreenBg,
+            textFormat: {
+              foregroundColor: COLORS.positiveCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 0,
+    },
+  });
+
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: discretionaryRowIdx,
+          endRowIndex: discretionaryRowIdx + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "CUSTOM_FORMULA",
+            values: [{ userEnteredValue: `=AND(B${discretionaryRowIdx + 1}>0.3,B${discretionaryRowIdx + 1}<=0.4)` }],
+          },
+          format: {
+            backgroundColor: { red: 1, green: 0.95, blue: 0.8 },
+            textFormat: {
+              foregroundColor: { red: 0.6, green: 0.5, blue: 0 },
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 1,
+    },
+  });
+
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: discretionaryRowIdx,
+          endRowIndex: discretionaryRowIdx + 1,
+          startColumnIndex: 1,
+          endColumnIndex: 2,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_GREATER",
+            values: [{ userEnteredValue: "0.4" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.negativeRedBg,
+            textFormat: {
+              foregroundColor: COLORS.negativeCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 2,
     },
   });
 
