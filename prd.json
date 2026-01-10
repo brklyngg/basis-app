@@ -250,8 +250,8 @@
         "Typecheck passes"
       ],
       "priority": 15,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented generateFinancialInsights() calling Claude API (claude-sonnet-4) with structured financial summary. Generates 5 insights covering health assessment, trend observation, top spending, savings rate, and positive wins. InsightItem and InsightType exported from @/types. Includes fallback default insights if API fails."
     },
     {
       "id": "US-016",
@@ -266,8 +266,8 @@
         "Typecheck passes"
       ],
       "priority": 16,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented insight embedding in Dashboard. Added INSIGHT_EMOJI constant and getInsightEmoji() helper function. Export route calls generateFinancialInsights() with calculated metrics. buildDashboardData() accepts optional insights array and renders each with emoji prefix (✓ positive, ℹ neutral, ⚠ attention). Graceful fallback message if no insights generated."
     },
     {
       "id": "US-017",

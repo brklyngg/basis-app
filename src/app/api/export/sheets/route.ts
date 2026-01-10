@@ -4,7 +4,14 @@ import { plaidClient, PLAID_REAUTH_ERRORS, PLAID_TEMPORARY_ERRORS } from "@/lib/
 import { buildFinancialStatement, calculateDateRange } from "@/lib/financial-statement";
 import { createFinancialSpreadsheet, refreshTokensIfNeeded } from "@/lib/google-sheets";
 import { classifyAllTransactions } from "@/lib/transaction-classifier";
-import type { Transaction, Account } from "@/types";
+import {
+  calculateCoreMetrics,
+  calculateTrendMetrics,
+  calculateCategoryBreakdown,
+  calculateBalanceSheet,
+} from "@/lib/financial-metrics";
+import { generateFinancialInsights } from "@/lib/insights-generator";
+import type { Transaction, Account, InsightItem } from "@/types";
 
 interface ExportRequest {
   startDate?: string;
@@ -187,8 +194,30 @@ export async function POST(request: Request) {
       endDate
     );
 
-    // Create Google Sheets spreadsheet with raw transaction data and balance sheet
-    const result = await createFinancialSpreadsheet(accessToken, statement, classifiedTransactions, allAccounts);
+    // Generate AI financial insights (US-016)
+    // Calculate metrics needed for insights using raw transactions
+    // (the metrics functions internally classify transactions)
+    const coreMetrics = calculateCoreMetrics(allTransactions, allAccounts);
+    const trendMetrics = calculateTrendMetrics(allTransactions, allAccounts);
+    const categoryBreakdown = calculateCategoryBreakdown(allTransactions, allAccounts);
+    const balanceSheet = calculateBalanceSheet(allAccounts);
+
+    let insights: InsightItem[] = [];
+    try {
+      insights = await generateFinancialInsights({
+        coreMetrics,
+        trendMetrics,
+        categoryBreakdown,
+        balanceSheet,
+      });
+      console.log(`[Export] Generated ${insights.length} AI insights`);
+    } catch (insightError) {
+      console.error("[Export] Failed to generate insights:", insightError);
+      // Continue without insights - they're optional
+    }
+
+    // Create Google Sheets spreadsheet with raw transaction data, balance sheet, and insights
+    const result = await createFinancialSpreadsheet(accessToken, statement, classifiedTransactions, allAccounts, insights);
 
     return NextResponse.json({
       success: true,

@@ -1,5 +1,5 @@
 import { google, sheets_v4 } from "googleapis";
-import type { FinancialStatement, MonthlyFinancials, ClassifiedTransaction, Account, BalanceSheet } from "@/types";
+import type { FinancialStatement, MonthlyFinancials, ClassifiedTransaction, Account, BalanceSheet, InsightItem, InsightType } from "@/types";
 import { calculateBalanceSheet } from "./financial-metrics";
 import { formatMonthDisplay } from "./financial-statement";
 
@@ -14,6 +14,23 @@ const COLORS = {
   borderColor: { red: 0.8, green: 0.8, blue: 0.8 },       // Light gray
   lightBorder: { red: 0.9, green: 0.9, blue: 0.9 },       // Very light gray
 };
+
+// Insight emoji mapping for Dashboard (US-016)
+// - Positive: ✓ (checkmark) - something good, a win, or encouraging news
+// - Neutral: ℹ (info) - informational observation, neither good nor bad
+// - Attention: ⚠ (warning) - something that might need attention
+const INSIGHT_EMOJI: Record<InsightType, string> = {
+  positive: "✓",
+  neutral: "ℹ",
+  attention: "⚠",
+};
+
+/**
+ * Get emoji prefix for an insight based on its type
+ */
+function getInsightEmoji(type: InsightType): string {
+  return INSIGHT_EMOJI[type] || "•";
+}
 
 // Financial Analyst Standard Color Coding (per CLAUDE.md)
 // - Blue text: Hard-coded inputs, historical data
@@ -2139,8 +2156,11 @@ function buildCashFlowFormattingRequests(
 /**
  * Build dashboard sheet data with section headers and formula-driven values
  * Dashboard is the executive summary - first sheet users see
+ *
+ * @param statement - Financial statement data for formulas and trends
+ * @param insights - Optional AI-generated financial insights (US-016)
  */
-function buildDashboardData(statement: FinancialStatement): {
+function buildDashboardData(statement: FinancialStatement, insights?: InsightItem[]): {
   data: (string | number)[][];
   layout: DashboardLayout;
 } {
@@ -2350,19 +2370,27 @@ function buildDashboardData(statement: FinancialStatement): {
   // ========== INSIGHTS SECTION ==========
   // Row 24: Section header
   data.push(["INSIGHTS", "", "", "", "", ""]);
-  const insightsHeaderRow = 24;
+  const insightsHeaderRow = data.length - 1;
 
-  // Row 25: Placeholder explanation
-  data.push(["AI-powered insights will appear here after analysis.", "", "", "", "", ""]);
-  const insightsStartRow = 25;
+  // Insights rows (US-016): Display AI-generated insights with emoji prefixes
+  // Each insight on its own row with emoji mapping:
+  // - positive = ✓ (checkmark)
+  // - neutral = ℹ (info)
+  // - attention = ⚠ (warning)
+  const insightsStartRow = data.length;
 
-  // Row 26-30: Insight placeholders (to be populated in US-016)
-  data.push(["", "", "", "", "", ""]);
-  data.push(["", "", "", "", "", ""]);
-  data.push(["", "", "", "", "", ""]);
-  data.push(["", "", "", "", "", ""]);
-  data.push(["", "", "", "", "", ""]);
-  const insightsEndRow = 30;
+  if (insights && insights.length > 0) {
+    // Add each insight with emoji prefix
+    for (const insight of insights) {
+      const emoji = getInsightEmoji(insight.type);
+      data.push([`${emoji}  ${insight.text}`, "", "", "", "", ""]);
+    }
+  } else {
+    // Fallback message if no insights were generated
+    data.push(["AI-powered insights will be generated on your next export.", "", "", "", "", ""]);
+  }
+
+  const insightsEndRow = data.length - 1;
 
   // Row 31: Empty row for spacing
   data.push([]);
@@ -3993,12 +4021,19 @@ function formatDateRangeTitle(dateRange: { start: string; end: string }): string
  * - Summary (legacy format for backward compatibility)
  * - Detailed Categories
  * - Transactions (if provided)
+ *
+ * @param accessToken - Google OAuth access token
+ * @param statement - Financial statement data
+ * @param transactions - Optional classified transactions for Transactions sheet
+ * @param accounts - Optional accounts for Balance Sheet
+ * @param insights - Optional AI-generated insights for Dashboard (US-016)
  */
 export async function createFinancialSpreadsheet(
   accessToken: string,
   statement: FinancialStatement,
   transactions?: ClassifiedTransaction[],
-  accounts?: Account[]
+  accounts?: Account[],
+  insights?: InsightItem[]
 ): Promise<{ url: string; id: string }> {
   const sheets = createSheetsClient(accessToken);
 
@@ -4039,7 +4074,7 @@ export async function createFinancialSpreadsheet(
     : null;
 
   // 2. Build data for all sheets
-  const { data: dashboardData, layout: dashboardLayout } = buildDashboardData(statement);
+  const { data: dashboardData, layout: dashboardLayout } = buildDashboardData(statement, insights);
   const { data: incomeStatementData, layout: incomeStatementLayout } = buildIncomeStatementData(statement);
 
   // Build Balance Sheet data from accounts (or empty if no accounts provided)
