@@ -299,3 +299,11 @@ export interface BalanceSheet {
   // Metadata
   asOfDate: string; // ISO date string for point-in-time snapshot
 }
+
+// AI-generated financial insight types
+export type InsightType = "positive" | "neutral" | "attention";
+
+export interface InsightItem {
+  type: InsightType;
+  text: string;
+}
