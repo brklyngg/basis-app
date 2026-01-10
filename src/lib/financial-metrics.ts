@@ -5,6 +5,8 @@ import type {
   TrendMetrics,
   TrendDirection,
   MonthlyCashFlow,
+  CategoryBreakdownItem,
+  CategoryBreakdownResult,
 } from "@/types";
 import { classifyAllTransactions, getCashFlowTransactions } from "./transaction-classifier";
 
@@ -228,5 +230,159 @@ export function calculateTrendMetrics(
     },
     threeMonthMovingAverage,
     monthlyData,
+  };
+}
+
+/**
+ * Calculate spending by category for a specific month
+ *
+ * Returns a map of category -> total spend for that month
+ */
+function calculateMonthlySpendByCategory(
+  transactions: Transaction[],
+  accounts: Account[],
+  month: string
+): Map<string, number> {
+  const classified = classifyAllTransactions(transactions, accounts);
+  const cashFlowTransactions = getCashFlowTransactions(classified);
+
+  const categorySpend = new Map<string, number>();
+
+  for (const t of cashFlowTransactions) {
+    const txMonth = getMonthKey(t.date);
+    if (txMonth !== month) continue;
+
+    // Only count expenses (positive amounts, excluding income)
+    if (t.classification === "expense_essential" || t.classification === "expense_discretionary") {
+      const current = categorySpend.get(t.category) || 0;
+      categorySpend.set(t.category, current + t.amount);
+    }
+  }
+
+  return categorySpend;
+}
+
+/**
+ * Calculate category breakdown with rankings
+ *
+ * Ranks categories by total spend descending, calculates percentages,
+ * and computes month-over-month change for each category.
+ */
+export function calculateCategoryBreakdown(
+  transactions: Transaction[],
+  accounts: Account[]
+): CategoryBreakdownResult {
+  // Classify all transactions
+  const classified = classifyAllTransactions(transactions, accounts);
+
+  // Get only cash flow relevant transactions (excludes transfers and CC payments)
+  const cashFlowTransactions = getCashFlowTransactions(classified);
+
+  // Calculate totals for reference
+  let totalIncome = 0;
+  let totalExpenses = 0;
+
+  for (const t of cashFlowTransactions) {
+    if (t.classification === "income") {
+      totalIncome += Math.abs(t.amount);
+    } else if (
+      t.classification === "expense_essential" ||
+      t.classification === "expense_discretionary"
+    ) {
+      totalExpenses += t.amount;
+    }
+  }
+
+  // Get unique months
+  const uniqueMonths = getUniqueMonths(transactions);
+  const periodMonths = Math.max(1, uniqueMonths.size);
+
+  // Aggregate spending by category
+  const categorySpendMap = new Map<string, number>();
+
+  for (const t of cashFlowTransactions) {
+    // Only count expenses (positive amounts)
+    if (t.classification === "expense_essential" || t.classification === "expense_discretionary") {
+      const current = categorySpendMap.get(t.category) || 0;
+      categorySpendMap.set(t.category, current + t.amount);
+    }
+  }
+
+  // Get sorted months for MoM calculation
+  const sortedMonths = Array.from(uniqueMonths).sort();
+  const currentMonth = sortedMonths[sortedMonths.length - 1];
+  // With only one month, MoM change should be 0 (no prior month to compare to)
+  const priorMonth = sortedMonths.length >= 2 ? sortedMonths[sortedMonths.length - 2] : null;
+
+  // Calculate monthly spend by category for MoM comparison
+  const currentMonthSpend = currentMonth
+    ? calculateMonthlySpendByCategory(transactions, accounts, currentMonth)
+    : new Map<string, number>();
+  // If no prior month, use an empty map (will result in current - 0, which we'll handle below)
+  const priorMonthSpend = priorMonth
+    ? calculateMonthlySpendByCategory(transactions, accounts, priorMonth)
+    : new Map<string, number>();
+
+  // Flag to determine if we have a valid MoM comparison
+  const hasPriorMonth = priorMonth !== null;
+
+  // Convert to array and sort by total spend descending
+  const categories: CategoryBreakdownItem[] = [];
+
+  for (const [category, totalSpend] of categorySpendMap) {
+    const monthlyAverage = totalSpend / periodMonths;
+    const percentOfExpenses = totalExpenses > 0 ? (totalSpend / totalExpenses) * 100 : 0;
+    const percentOfIncome = totalIncome > 0 ? (totalSpend / totalIncome) * 100 : 0;
+
+    // Calculate MoM change for this category
+    // If there's no prior month (single month of data), MoM change is 0
+    let momChangeAmount = 0;
+    let momPercentageChange = 0;
+
+    if (hasPriorMonth) {
+      const currentSpend = currentMonthSpend.get(category) || 0;
+      const priorSpend = priorMonthSpend.get(category) || 0;
+      momChangeAmount = currentSpend - priorSpend;
+
+      if (priorSpend !== 0) {
+        momPercentageChange = (momChangeAmount / priorSpend) * 100;
+      } else if (currentSpend > 0) {
+        // No prior spend, current has spend = new category this month
+        momPercentageChange = 100;
+      }
+      // If both are zero, percentage change stays 0
+    }
+
+    categories.push({
+      rank: 0, // Will be set after sorting
+      category,
+      totalSpend,
+      monthlyAverage,
+      percentOfExpenses,
+      percentOfIncome,
+      momChange: {
+        amount: momChangeAmount,
+        percentageChange: momPercentageChange,
+      },
+    });
+  }
+
+  // Sort by total spend descending
+  categories.sort((a, b) => b.totalSpend - a.totalSpend);
+
+  // Assign ranks
+  for (let i = 0; i < categories.length; i++) {
+    categories[i].rank = i + 1;
+  }
+
+  // Get top 5
+  const topCategories = categories.slice(0, 5);
+
+  return {
+    topCategories,
+    allCategories: categories,
+    totalExpenses,
+    totalIncome,
+    periodMonths,
   };
 }

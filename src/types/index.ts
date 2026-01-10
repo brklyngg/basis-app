@@ -235,3 +235,29 @@ export interface TrendMetrics {
   // Monthly data for trend analysis
   monthlyData: MonthlyCashFlow[];
 }
+
+// Individual category breakdown item with ranking and trend data
+export interface CategoryBreakdownItem {
+  rank: number;
+  category: string;
+  totalSpend: number;
+  monthlyAverage: number;
+  percentOfExpenses: number; // percentage of total expenses
+  percentOfIncome: number; // percentage of total income
+  momChange: {
+    amount: number; // change in spend vs prior month
+    percentageChange: number; // percentage change from prior month
+  };
+}
+
+// Result of category breakdown analysis
+export interface CategoryBreakdownResult {
+  // Top 5 categories by spend
+  topCategories: CategoryBreakdownItem[];
+  // All categories for reference
+  allCategories: CategoryBreakdownItem[];
+  // Summary stats
+  totalExpenses: number;
+  totalIncome: number;
+  periodMonths: number;
+}
