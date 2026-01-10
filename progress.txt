@@ -289,3 +289,33 @@ This ensures the user knows they're working with complete, accurate data.
   - The formula `MAX(1, MIN(10, ROUND(pct*10)))` ensures at least 1 block but caps at 10 for visual balance
 
 ---
+
+## 2025-01-10 00:15 - US-009
+- What was implemented:
+  - Created 'Income Statement' sheet as the second sheet (after Dashboard) with proper P&L structure
+  - Added `IncomeStatementLayout` interface to track row indices for formatting
+  - Added `buildIncomeStatementData()` function building the Income Statement data structure
+  - Added `buildIncomeStatementFormattingRequests()` function for professional styling
+  - INCOME section with Salary/Wages, Investment Income, Other Income subcategories
+  - ESSENTIAL EXPENSES section with 7 categories (Housing, Utilities, Transportation, Groceries, Insurance, Medical, Debt Service)
+  - DISCRETIONARY EXPENSES section with 6 categories (Dining Out, Entertainment, Shopping, Travel, Subscriptions, Other)
+  - Formula-driven totals: TOTAL INCOME, SUBTOTAL Essential, SUBTOTAL Discretionary, TOTAL EXPENSES, NET INCOME
+  - Financial analyst color coding per CLAUDE.md standards:
+    - Blue text for hard-coded inputs (monthly transaction data values)
+    - Black text for same-sheet formulas (SUMs, calculations)
+  - Conditional formatting for NET INCOME row (green when positive, red when negative)
+  - Updated `createFinancialSpreadsheet()` to include Income Statement as second sheet (index 1)
+
+- Files changed:
+  - `src/lib/google-sheets.ts` - Added IncomeStatementLayout interface, buildIncomeStatementData(), buildIncomeStatementFormattingRequests(), updated createFinancialSpreadsheet() (+597 lines)
+
+- **Learnings for future iterations:**
+  - Income Statement is positioned as index 1 (after Dashboard at 0), shifting Summary to index 2
+  - Sheet names with spaces need single quotes in range references: `'Income Statement'!A1`
+  - Formula row references are 1-indexed in Google Sheets, while layout row indices are 0-indexed
+  - For SUM formulas spanning data rows, calculate start/end rows dynamically based on data.length
+  - The Total and Avg columns use formulas that reference the Total row, not individual cells
+  - FINANCIAL_COLORS.inputBlue applies to monthly data columns only (not Total/Avg which are formula-derived)
+  - Subtotal/Total rows keep the default black text since they contain same-sheet formulas
+
+---
