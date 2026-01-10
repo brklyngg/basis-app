@@ -354,3 +354,42 @@ This ensures the user knows they're working with complete, accurate data.
   - The accounts parameter is optional in the function signature to maintain backward compatibility
 
 ---
+
+## 2025-01-10 00:40 - US-011
+- What was implemented:
+  - Created 'Cash Flow' sheet as the fourth sheet (after Balance Sheet, before Summary)
+  - Added `CashFlowLayout` interface to track row indices for formatting
+  - Added `buildCashFlowData()` function creating Cash Flow Statement structure:
+    - OPERATING ACTIVITIES section with Net Income from P&L (cross-sheet reference)
+    - NET INCOME FROM OPERATIONS total row
+    - FINANCING ACTIVITIES section with CC payments and internal transfers (info only)
+    - NET FINANCING ACTIVITIES total row
+    - NET CHANGE IN CASH calculation (Operating + Financing)
+    - Beginning Cash Balance row with running balance tracking
+    - Ending Cash Balance row with formula
+    - Note about excluding internal transfers
+  - Added `buildCashFlowFormattingRequests()` function for professional styling:
+    - Green text for cross-sheet references (Net Income from Income Statement)
+    - Blue text for Beginning Cash Balance (hard-coded input)
+    - Black text for same-sheet formulas
+    - Conditional formatting for NET CHANGE IN CASH (green when positive, red when negative)
+    - Dark headers, section headers with light gray background
+    - Professional borders with thicker section dividers
+  - Updated `createFinancialSpreadsheet()` to include Cash Flow sheet:
+    - Cash Flow added at index 3 (Dashboard=0, Income Statement=1, Balance Sheet=2, Cash Flow=3)
+    - Summary shifted to index 4, Detailed Categories to index 5, Transactions to index 6
+    - Uses beginning cash balance from total liquid assets (Balance Sheet data)
+
+- Files changed:
+  - `src/lib/google-sheets.ts` - Added CashFlowLayout interface, buildCashFlowData(), buildCashFlowFormattingRequests(), updated createFinancialSpreadsheet() (+612 lines)
+
+- **Learnings for future iterations:**
+  - Cash Flow sheet position is index 3, shifting Summary and Detailed Categories sheets
+  - To reference another sheet's dynamic row, first call that sheet's build function to get the layout, then use `layout.rowName + 1` for 1-indexed reference
+  - The `MonthlyFinancials.transfers` object contains `creditCardPayments` and `internal` transfer amounts
+  - CC payments are shown as negative values (cash outflow) in financing section
+  - Internal transfers are shown for informational purposes but excluded from net financing calculation
+  - Beginning cash balance uses the current total liquid assets from Balance Sheet - this is a simplification (ideally would reconstruct from transaction history)
+  - Running balance calculation: Beginning[n+1] = Ending[n] where Ending = Beginning + Net Change
+
+---
