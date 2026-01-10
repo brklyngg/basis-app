@@ -270,6 +270,589 @@ function buildCashFlowTrendText(momPercentage: number): string {
   return `${arrow} ${absPercent}% (${direction})`;
 }
 
+// Income Statement row indices (for formatting reference)
+interface IncomeStatementLayout {
+  headerRow: number;
+  incomeHeaderRow: number;
+  incomeStartRow: number;
+  incomeEndRow: number;  // Total Income row
+  essentialHeaderRow: number;
+  essentialStartRow: number;
+  essentialEndRow: number;  // Essential Subtotal row
+  discretionaryHeaderRow: number;
+  discretionaryStartRow: number;
+  discretionaryEndRow: number;  // Discretionary Subtotal row
+  totalExpensesRow: number;
+  netIncomeRow: number;
+  totalRows: number;
+  columnCount: number;
+}
+
+/**
+ * Build Income Statement sheet data in proper P&L format
+ * Structure:
+ * - INCOME section with subcategories
+ * - ESSENTIAL EXPENSES section
+ * - DISCRETIONARY EXPENSES section
+ * - TOTAL EXPENSES
+ * - NET INCOME
+ */
+function buildIncomeStatementData(statement: FinancialStatement): {
+  data: (string | number)[][];
+  layout: IncomeStatementLayout;
+} {
+  const months = statement.months;
+  const monthHeaders = months.map((m) => formatMonthDisplay(m.month));
+  const data: (string | number)[][] = [];
+
+  // Row 0: Header row
+  data.push(["INCOME STATEMENT", ...monthHeaders, "Total", "Monthly Avg"]);
+  const headerRow = 0;
+
+  // Row 1: Empty spacer
+  data.push([]);
+
+  // ========== INCOME SECTION ==========
+  // Row 2: INCOME section header
+  data.push(["INCOME", ...months.map(() => ""), "", ""]);
+  const incomeHeaderRow = 2;
+
+  // Row 3: Salary
+  const incomeStartRow = 3;
+  data.push([
+    "  Salary / Wages",
+    ...months.map((m) => m.income.salary),
+    months.reduce((sum, m) => sum + m.income.salary, 0),
+    months.reduce((sum, m) => sum + m.income.salary, 0) / months.length,
+  ]);
+
+  // Row 4: Investment Income
+  data.push([
+    "  Investment Income",
+    ...months.map((m) => m.income.investment),
+    months.reduce((sum, m) => sum + m.income.investment, 0),
+    months.reduce((sum, m) => sum + m.income.investment, 0) / months.length,
+  ]);
+
+  // Row 5: Other Income
+  data.push([
+    "  Other Income",
+    ...months.map((m) => m.income.other),
+    months.reduce((sum, m) => sum + m.income.other, 0),
+    months.reduce((sum, m) => sum + m.income.other, 0) / months.length,
+  ]);
+
+  // Row 6: TOTAL INCOME (formula-driven)
+  const totalIncomeFormulas = months.map((_, colIdx) => {
+    const colLetter = getColumnLetter(colIdx + 1); // +1 to skip category column
+    return `=SUM(${colLetter}${incomeStartRow + 1}:${colLetter}${incomeStartRow + 3})`; // Rows 4-6 (1-indexed)
+  });
+  const totalColLetter = getColumnLetter(months.length + 1);
+  const avgColLetter = getColumnLetter(months.length + 2);
+
+  data.push([
+    "TOTAL INCOME",
+    ...totalIncomeFormulas,
+    `=SUM(B${incomeStartRow + 1}:${getColumnLetter(months.length)}${incomeStartRow + 3})`,
+    `=${totalColLetter}${incomeStartRow + 4}/${months.length}`,
+  ]);
+  const incomeEndRow = data.length - 1; // 6
+
+  // Row 7: Empty spacer
+  data.push([]);
+
+  // ========== ESSENTIAL EXPENSES SECTION ==========
+  // Row 8: ESSENTIAL EXPENSES section header
+  data.push(["ESSENTIAL EXPENSES", ...months.map(() => ""), "", ""]);
+  const essentialHeaderRow = data.length - 1; // 8
+
+  // Essential expense categories
+  const essentialCategories: { label: string; key: keyof MonthlyFinancials["expenses"]["essential"] }[] = [
+    { label: "  Housing (Rent/Mortgage)", key: "housing" },
+    { label: "  Utilities", key: "utilities" },
+    { label: "  Transportation", key: "transportation" },
+    { label: "  Groceries", key: "groceries" },
+    { label: "  Insurance", key: "insurance" },
+    { label: "  Medical / Healthcare", key: "medical" },
+    { label: "  Debt Service", key: "debtService" },
+  ];
+
+  const essentialStartRow = data.length;
+  for (const cat of essentialCategories) {
+    if (cat.key === "total") continue;
+    data.push([
+      cat.label,
+      ...months.map((m) => m.expenses.essential[cat.key]),
+      months.reduce((sum, m) => sum + m.expenses.essential[cat.key], 0),
+      months.reduce((sum, m) => sum + m.expenses.essential[cat.key], 0) / months.length,
+    ]);
+  }
+
+  // Essential SUBTOTAL (formula-driven)
+  const essentialSubtotalFormulas = months.map((_, colIdx) => {
+    const colLetter = getColumnLetter(colIdx + 1);
+    return `=SUM(${colLetter}${essentialStartRow + 1}:${colLetter}${essentialStartRow + essentialCategories.length})`;
+  });
+
+  data.push([
+    "  SUBTOTAL Essential",
+    ...essentialSubtotalFormulas,
+    `=SUM(B${essentialStartRow + 1}:${getColumnLetter(months.length)}${essentialStartRow + essentialCategories.length})`,
+    `=${totalColLetter}${essentialStartRow + essentialCategories.length + 1}/${months.length}`,
+  ]);
+  const essentialEndRow = data.length - 1;
+
+  // Row: Empty spacer
+  data.push([]);
+
+  // ========== DISCRETIONARY EXPENSES SECTION ==========
+  // Row: DISCRETIONARY EXPENSES section header
+  data.push(["DISCRETIONARY EXPENSES", ...months.map(() => ""), "", ""]);
+  const discretionaryHeaderRow = data.length - 1;
+
+  // Discretionary expense categories
+  const discretionaryCategories: { label: string; key: keyof MonthlyFinancials["expenses"]["discretionary"] }[] = [
+    { label: "  Dining Out", key: "diningOut" },
+    { label: "  Entertainment", key: "entertainment" },
+    { label: "  Shopping", key: "shopping" },
+    { label: "  Travel", key: "travel" },
+    { label: "  Subscriptions", key: "subscriptions" },
+    { label: "  Other Discretionary", key: "other" },
+  ];
+
+  const discretionaryStartRow = data.length;
+  for (const cat of discretionaryCategories) {
+    if (cat.key === "total") continue;
+    data.push([
+      cat.label,
+      ...months.map((m) => m.expenses.discretionary[cat.key]),
+      months.reduce((sum, m) => sum + m.expenses.discretionary[cat.key], 0),
+      months.reduce((sum, m) => sum + m.expenses.discretionary[cat.key], 0) / months.length,
+    ]);
+  }
+
+  // Discretionary SUBTOTAL (formula-driven)
+  const discretionarySubtotalFormulas = months.map((_, colIdx) => {
+    const colLetter = getColumnLetter(colIdx + 1);
+    return `=SUM(${colLetter}${discretionaryStartRow + 1}:${colLetter}${discretionaryStartRow + discretionaryCategories.length})`;
+  });
+
+  data.push([
+    "  SUBTOTAL Discretionary",
+    ...discretionarySubtotalFormulas,
+    `=SUM(B${discretionaryStartRow + 1}:${getColumnLetter(months.length)}${discretionaryStartRow + discretionaryCategories.length})`,
+    `=${totalColLetter}${discretionaryStartRow + discretionaryCategories.length + 1}/${months.length}`,
+  ]);
+  const discretionaryEndRow = data.length - 1;
+
+  // Row: Empty spacer
+  data.push([]);
+
+  // ========== TOTAL EXPENSES ==========
+  // Formula: Essential Subtotal + Discretionary Subtotal
+  const totalExpensesFormulas = months.map((_, colIdx) => {
+    const colLetter = getColumnLetter(colIdx + 1);
+    return `=${colLetter}${essentialEndRow + 1}+${colLetter}${discretionaryEndRow + 1}`;
+  });
+
+  data.push([
+    "TOTAL EXPENSES",
+    ...totalExpensesFormulas,
+    `=${totalColLetter}${essentialEndRow + 1}+${totalColLetter}${discretionaryEndRow + 1}`,
+    `=${avgColLetter}${essentialEndRow + 1}+${avgColLetter}${discretionaryEndRow + 1}`,
+  ]);
+  const totalExpensesRow = data.length - 1;
+
+  // Row: Empty spacer
+  data.push([]);
+
+  // ========== NET INCOME ==========
+  // Formula: Total Income - Total Expenses
+  const netIncomeFormulas = months.map((_, colIdx) => {
+    const colLetter = getColumnLetter(colIdx + 1);
+    return `=${colLetter}${incomeEndRow + 1}-${colLetter}${totalExpensesRow + 1}`;
+  });
+
+  data.push([
+    "NET INCOME",
+    ...netIncomeFormulas,
+    `=${totalColLetter}${incomeEndRow + 1}-${totalColLetter}${totalExpensesRow + 1}`,
+    `=${avgColLetter}${incomeEndRow + 1}-${avgColLetter}${totalExpensesRow + 1}`,
+  ]);
+  const netIncomeRow = data.length - 1;
+
+  const layout: IncomeStatementLayout = {
+    headerRow,
+    incomeHeaderRow,
+    incomeStartRow,
+    incomeEndRow,
+    essentialHeaderRow,
+    essentialStartRow,
+    essentialEndRow,
+    discretionaryHeaderRow,
+    discretionaryStartRow,
+    discretionaryEndRow,
+    totalExpensesRow,
+    netIncomeRow,
+    totalRows: data.length,
+    columnCount: months.length + 3, // Category + months + Total + Avg
+  };
+
+  return { data, layout };
+}
+
+/**
+ * Build formatting requests for the Income Statement sheet
+ * Applies financial analyst color coding per CLAUDE.md standards:
+ * - Blue text: Hard-coded inputs (actual transaction data values)
+ * - Black text: Same-sheet formulas (SUMs, calculations)
+ * - Green text: Cross-sheet references (none in this sheet - it's the source)
+ */
+function buildIncomeStatementFormattingRequests(
+  sheetId: number,
+  layout: IncomeStatementLayout,
+  monthCount: number
+): sheets_v4.Schema$Request[] {
+  const requests: sheets_v4.Schema$Request[] = [];
+  const { columnCount } = layout;
+
+  // 1. Freeze header row and first column for navigation
+  requests.push({
+    updateSheetProperties: {
+      properties: {
+        sheetId,
+        gridProperties: { frozenRowCount: 1, frozenColumnCount: 1 },
+      },
+      fields: "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
+    },
+  });
+
+  // 2. Title row styling (Row 0) - Dark header
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.headerBg,
+          horizontalAlignment: "CENTER",
+          textFormat: {
+            foregroundColor: COLORS.headerText,
+            fontSize: 12,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+    },
+  });
+
+  // 3. Section header styling (INCOME, ESSENTIAL EXPENSES, DISCRETIONARY EXPENSES)
+  const sectionHeaderRows = [
+    layout.incomeHeaderRow,
+    layout.essentialHeaderRow,
+    layout.discretionaryHeaderRow,
+  ];
+
+  for (const row of sectionHeaderRows) {
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: row, endRowIndex: row + 1 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: COLORS.sectionBg,
+            textFormat: {
+              foregroundColor: FINANCIAL_COLORS.formulaBlack,
+              fontSize: 11,
+              bold: true,
+            },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat)",
+      },
+    });
+  }
+
+  // 4. TOTAL INCOME row styling - bold with subtle highlight
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.incomeEndRow, endRowIndex: layout.incomeEndRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.totalRowBg,
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.formulaBlack, // Black text for same-sheet formulas
+            fontSize: 10,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+    },
+  });
+
+  // 5. SUBTOTAL rows styling (Essential and Discretionary)
+  const subtotalRows = [layout.essentialEndRow, layout.discretionaryEndRow];
+  for (const row of subtotalRows) {
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: row, endRowIndex: row + 1 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: COLORS.totalRowBg,
+            textFormat: {
+              foregroundColor: FINANCIAL_COLORS.formulaBlack, // Black for same-sheet formulas
+              fontSize: 10,
+              bold: true,
+            },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat)",
+      },
+    });
+  }
+
+  // 6. TOTAL EXPENSES row styling
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.totalExpensesRow, endRowIndex: layout.totalExpensesRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.totalRowBg,
+          textFormat: {
+            foregroundColor: FINANCIAL_COLORS.formulaBlack, // Black for same-sheet formulas
+            fontSize: 11,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+    },
+  });
+
+  // 7. NET INCOME row styling - prominent with dark background
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: layout.netIncomeRow, endRowIndex: layout.netIncomeRow + 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: COLORS.headerBg,
+          textFormat: {
+            foregroundColor: COLORS.headerText,
+            fontSize: 12,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat)",
+    },
+  });
+
+  // 8. Apply BLUE text for input data cells (actual values from transactions)
+  // These are the "historical data" cells - income and expense line items
+  const inputDataRanges = [
+    // Income line items (Salary, Investment, Other)
+    { start: layout.incomeStartRow, end: layout.incomeEndRow },
+    // Essential expense line items
+    { start: layout.essentialStartRow, end: layout.essentialEndRow },
+    // Discretionary expense line items
+    { start: layout.discretionaryStartRow, end: layout.discretionaryEndRow },
+  ];
+
+  for (const range of inputDataRanges) {
+    requests.push({
+      repeatCell: {
+        range: {
+          sheetId,
+          startRowIndex: range.start,
+          endRowIndex: range.end, // Excludes the subtotal/total row
+          startColumnIndex: 1, // Skip category label column
+          endColumnIndex: monthCount + 1, // Only monthly data columns (not Total/Avg)
+        },
+        cell: {
+          userEnteredFormat: {
+            textFormat: {
+              foregroundColor: FINANCIAL_COLORS.inputBlue, // Blue for hard-coded inputs
+            },
+          },
+        },
+        fields: "userEnteredFormat.textFormat.foregroundColor",
+      },
+    });
+  }
+
+  // 9. Currency format for all data cells
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: 1, // Skip header
+        startColumnIndex: 1, // Skip category column
+        endColumnIndex: columnCount,
+      },
+      cell: {
+        userEnteredFormat: {
+          numberFormat: { type: "CURRENCY", pattern: "$#,##0.00" },
+          horizontalAlignment: "RIGHT",
+        },
+      },
+      fields: "userEnteredFormat(numberFormat,horizontalAlignment)",
+    },
+  });
+
+  // 10. Conditional formatting for NET INCOME - green when positive, red when negative
+  // Apply to data columns (months + Total + Avg)
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: layout.netIncomeRow,
+          endRowIndex: layout.netIncomeRow + 1,
+          startColumnIndex: 1,
+          endColumnIndex: columnCount,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_GREATER",
+            values: [{ userEnteredValue: "0" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.positiveGreenBg,
+            textFormat: {
+              foregroundColor: COLORS.positiveCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 0,
+    },
+  });
+
+  requests.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{
+          sheetId,
+          startRowIndex: layout.netIncomeRow,
+          endRowIndex: layout.netIncomeRow + 1,
+          startColumnIndex: 1,
+          endColumnIndex: columnCount,
+        }],
+        booleanRule: {
+          condition: {
+            type: "NUMBER_LESS",
+            values: [{ userEnteredValue: "0" }],
+          },
+          format: {
+            backgroundColor: FINANCIAL_COLORS.negativeRedBg,
+            textFormat: {
+              foregroundColor: COLORS.negativeCashFlow,
+              bold: true,
+            },
+          },
+        },
+      },
+      index: 1,
+    },
+  });
+
+  // 11. Set column widths
+  // First column (category labels) - wider
+  requests.push({
+    updateDimensionProperties: {
+      range: {
+        sheetId,
+        dimension: "COLUMNS",
+        startIndex: 0,
+        endIndex: 1,
+      },
+      properties: { pixelSize: 200 },
+      fields: "pixelSize",
+    },
+  });
+
+  // Month columns - standard width
+  for (let i = 1; i <= monthCount; i++) {
+    requests.push({
+      updateDimensionProperties: {
+        range: {
+          sheetId,
+          dimension: "COLUMNS",
+          startIndex: i,
+          endIndex: i + 1,
+        },
+        properties: { pixelSize: 100 },
+        fields: "pixelSize",
+      },
+    });
+  }
+
+  // Total and Avg columns - slightly wider
+  requests.push({
+    updateDimensionProperties: {
+      range: {
+        sheetId,
+        dimension: "COLUMNS",
+        startIndex: monthCount + 1,
+        endIndex: columnCount,
+      },
+      properties: { pixelSize: 110 },
+      fields: "pixelSize",
+    },
+  });
+
+  // 12. Add borders around the entire statement
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: 0,
+        endRowIndex: layout.totalRows,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount,
+      },
+      top: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      left: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      right: { style: "SOLID", width: 2, color: COLORS.borderColor },
+      innerHorizontal: { style: "SOLID", width: 1, color: COLORS.lightBorder },
+      innerVertical: { style: "SOLID", width: 1, color: COLORS.lightBorder },
+    },
+  });
+
+  // 13. Add thicker borders around major sections
+  // Border below TOTAL INCOME
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: layout.incomeEndRow,
+        endRowIndex: layout.incomeEndRow + 1,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount,
+      },
+      bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+    },
+  });
+
+  // Border below TOTAL EXPENSES
+  requests.push({
+    updateBorders: {
+      range: {
+        sheetId,
+        startRowIndex: layout.totalExpensesRow,
+        endRowIndex: layout.totalExpensesRow + 1,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount,
+      },
+      bottom: { style: "SOLID", width: 2, color: COLORS.borderColor },
+    },
+  });
+
+  return requests;
+}
+
 /**
  * Build dashboard sheet data with section headers and formula-driven values
  * Dashboard is the executive summary - first sheet users see
@@ -2017,7 +2600,8 @@ function formatDateRangeTitle(dateRange: { start: string; end: string }): string
 /**
  * Create a financial statement spreadsheet in Google Sheets
  * Dashboard is the first sheet (executive summary), followed by:
- * - Summary (Income Statement format)
+ * - Income Statement (P&L format)
+ * - Summary (legacy format for backward compatibility)
  * - Detailed Categories
  * - Transactions (if provided)
  */
@@ -2031,13 +2615,14 @@ export async function createFinancialSpreadsheet(
   // 1. Create spreadsheet with all sheets (Dashboard first)
   const sheetDefinitions = [
     { properties: { title: "Dashboard", index: 0 } },
-    { properties: { title: "Summary", index: 1 } },
-    { properties: { title: "Detailed Categories", index: 2 } },
+    { properties: { title: "Income Statement", index: 1 } },
+    { properties: { title: "Summary", index: 2 } },
+    { properties: { title: "Detailed Categories", index: 3 } },
   ];
 
   // Add Transactions sheet if transactions are provided
   if (transactions && transactions.length > 0) {
-    sheetDefinitions.push({ properties: { title: "Transactions", index: 3 } });
+    sheetDefinitions.push({ properties: { title: "Transactions", index: 4 } });
   }
 
   const spreadsheet = await sheets.spreadsheets.create({
@@ -2052,19 +2637,22 @@ export async function createFinancialSpreadsheet(
 
   const spreadsheetId = spreadsheet.data.spreadsheetId!;
   const dashboardSheetId = spreadsheet.data.sheets![0].properties!.sheetId!;
-  const summarySheetId = spreadsheet.data.sheets![1].properties!.sheetId!;
-  const detailedSheetId = spreadsheet.data.sheets![2].properties!.sheetId!;
+  const incomeStatementSheetId = spreadsheet.data.sheets![1].properties!.sheetId!;
+  const summarySheetId = spreadsheet.data.sheets![2].properties!.sheetId!;
+  const detailedSheetId = spreadsheet.data.sheets![3].properties!.sheetId!;
   const transactionsSheetId = transactions && transactions.length > 0
-    ? spreadsheet.data.sheets![3].properties!.sheetId!
+    ? spreadsheet.data.sheets![4].properties!.sheetId!
     : null;
 
   // 2. Build data for all sheets
   const { data: dashboardData, layout: dashboardLayout } = buildDashboardData(statement);
+  const { data: incomeStatementData, layout: incomeStatementLayout } = buildIncomeStatementData(statement);
 
   const dataUpdates: { range: string; values: (string | number)[][] }[] = [
     { range: "Dashboard!A1", values: dashboardData },
+    { range: "'Income Statement'!A1", values: incomeStatementData },
     { range: "Summary!A1", values: buildSummaryData(statement) },
-    { range: "Detailed Categories!A1", values: buildDetailedData(statement) },
+    { range: "'Detailed Categories'!A1", values: buildDetailedData(statement) },
   ];
 
   // Build transactions data if provided
@@ -2086,6 +2674,7 @@ export async function createFinancialSpreadsheet(
   // 4. Build formatting requests (Dashboard first for consistent ordering)
   const formattingRequests = [
     ...buildDashboardFormattingRequests(dashboardSheetId, dashboardLayout),
+    ...buildIncomeStatementFormattingRequests(incomeStatementSheetId, incomeStatementLayout, statement.months.length),
     ...buildSummaryFormattingRequests(summarySheetId, statement),
     ...buildDetailedFormattingRequests(detailedSheetId, statement),
   ];
