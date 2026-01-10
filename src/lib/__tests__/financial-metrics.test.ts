@@ -3,6 +3,7 @@ import {
   calculateCoreMetrics,
   calculateTrendMetrics,
   calculateCategoryBreakdown,
+  calculateBalanceSheet,
 } from "../financial-metrics";
 import type { Transaction, Account } from "@/types";
 
@@ -1190,5 +1191,325 @@ describe("calculateCategoryBreakdown", () => {
 
     expect(result.totalIncome).toBe(0);
     expect(result.allCategories[0].percentOfIncome).toBe(0); // No income = 0%
+  });
+});
+
+describe("calculateBalanceSheet", () => {
+  it("returns empty balance sheet for no accounts", () => {
+    const result = calculateBalanceSheet([]);
+
+    expect(result.assets.liquidAssets.accounts).toHaveLength(0);
+    expect(result.assets.liquidAssets.totalBalance).toBe(0);
+    expect(result.assets.totalAssets).toBe(0);
+    expect(result.liabilities.creditCardDebt.accounts).toHaveLength(0);
+    expect(result.liabilities.creditCardDebt.totalBalance).toBe(0);
+    expect(result.liabilities.totalLiabilities).toBe(0);
+    expect(result.netWorth).toBe(0);
+    expect(result.asOfDate).toBeTruthy(); // Should have a date
+  });
+
+  it("sums depository accounts as liquid assets", () => {
+    const accounts: Account[] = [
+      {
+        id: "checking-1",
+        name: "Checking",
+        type: "depository",
+        subtype: "checking",
+        balance: 5000,
+        institution: "Test Bank",
+      },
+      {
+        id: "savings-1",
+        name: "Savings",
+        type: "depository",
+        subtype: "savings",
+        balance: 10000,
+        institution: "Test Bank",
+      },
+    ];
+
+    const result = calculateBalanceSheet(accounts);
+
+    expect(result.assets.liquidAssets.accounts).toHaveLength(2);
+    expect(result.assets.liquidAssets.totalBalance).toBe(15000); // 5000 + 10000
+    expect(result.assets.liquidAssets.groupName).toBe("Liquid Assets");
+    expect(result.assets.totalAssets).toBe(15000);
+  });
+
+  it("sums credit card balances as liabilities", () => {
+    const accounts: Account[] = [
+      {
+        id: "cc-1",
+        name: "Chase Sapphire",
+        type: "credit",
+        subtype: "credit card",
+        balance: 1500, // Positive = amount owed
+        institution: "Chase",
+      },
+      {
+        id: "cc-2",
+        name: "Amex Platinum",
+        type: "credit",
+        subtype: "credit card",
+        balance: 2500,
+        institution: "American Express",
+      },
+    ];
+
+    const result = calculateBalanceSheet(accounts);
+
+    expect(result.liabilities.creditCardDebt.accounts).toHaveLength(2);
+    expect(result.liabilities.creditCardDebt.totalBalance).toBe(4000); // 1500 + 2500
+    expect(result.liabilities.creditCardDebt.groupName).toBe("Credit Card Debt");
+    expect(result.liabilities.totalLiabilities).toBe(4000);
+  });
+
+  it("calculates net worth as assets minus liabilities", () => {
+    const accounts: Account[] = [
+      {
+        id: "checking-1",
+        name: "Checking",
+        type: "depository",
+        subtype: "checking",
+        balance: 10000,
+        institution: "Test Bank",
+      },
+      {
+        id: "cc-1",
+        name: "Credit Card",
+        type: "credit",
+        subtype: "credit card",
+        balance: 3000,
+        institution: "Chase",
+      },
+    ];
+
+    const result = calculateBalanceSheet(accounts);
+
+    expect(result.assets.totalAssets).toBe(10000);
+    expect(result.liabilities.totalLiabilities).toBe(3000);
+    expect(result.netWorth).toBe(7000); // 10000 - 3000
+  });
+
+  it("handles negative net worth (more debt than assets)", () => {
+    const accounts: Account[] = [
+      {
+        id: "checking-1",
+        name: "Checking",
+        type: "depository",
+        subtype: "checking",
+        balance: 1000,
+        institution: "Test Bank",
+      },
+      {
+        id: "cc-1",
+        name: "Credit Card",
+        type: "credit",
+        subtype: "credit card",
+        balance: 5000,
+        institution: "Chase",
+      },
+    ];
+
+    const result = calculateBalanceSheet(accounts);
+
+    expect(result.netWorth).toBe(-4000); // 1000 - 5000 = -4000
+  });
+
+  it("groups accounts by type correctly", () => {
+    const accounts: Account[] = [
+      {
+        id: "checking-1",
+        name: "Checking",
+        type: "depository",
+        subtype: "checking",
+        balance: 5000,
+        institution: "Bank A",
+      },
+      {
+        id: "savings-1",
+        name: "Savings",
+        type: "depository",
+        subtype: "savings",
+        balance: 10000,
+        institution: "Bank A",
+      },
+      {
+        id: "cc-1",
+        name: "Chase Card",
+        type: "credit",
+        subtype: "credit card",
+        balance: 1500,
+        institution: "Chase",
+      },
+      {
+        id: "cc-2",
+        name: "Amex Card",
+        type: "credit",
+        subtype: "credit card",
+        balance: 2000,
+        institution: "Amex",
+      },
+    ];
+
+    const result = calculateBalanceSheet(accounts);
+
+    // Check liquid assets group
+    expect(result.assets.liquidAssets.accounts).toHaveLength(2);
+    expect(result.assets.liquidAssets.accounts[0].name).toBe("Checking");
+    expect(result.assets.liquidAssets.accounts[1].name).toBe("Savings");
+    expect(result.assets.liquidAssets.totalBalance).toBe(15000);
+
+    // Check credit card debt group
+    expect(result.liabilities.creditCardDebt.accounts).toHaveLength(2);
+    expect(result.liabilities.creditCardDebt.accounts[0].name).toBe("Chase Card");
+    expect(result.liabilities.creditCardDebt.accounts[1].name).toBe("Amex Card");
+    expect(result.liabilities.creditCardDebt.totalBalance).toBe(3500);
+
+    // Check net worth
+    expect(result.netWorth).toBe(11500); // 15000 - 3500
+  });
+
+  it("handles accounts with null balance", () => {
+    const accounts: Account[] = [
+      {
+        id: "checking-1",
+        name: "Checking",
+        type: "depository",
+        subtype: "checking",
+        balance: null, // Null balance should be treated as 0
+        institution: "Test Bank",
+      },
+      {
+        id: "savings-1",
+        name: "Savings",
+        type: "depository",
+        subtype: "savings",
+        balance: 5000,
+        institution: "Test Bank",
+      },
+    ];
+
+    const result = calculateBalanceSheet(accounts);
+
+    expect(result.assets.liquidAssets.accounts).toHaveLength(2);
+    expect(result.assets.liquidAssets.accounts[0].balance).toBe(0);
+    expect(result.assets.liquidAssets.totalBalance).toBe(5000);
+    expect(result.netWorth).toBe(5000);
+  });
+
+  it("ignores non-depository/non-credit account types", () => {
+    const accounts: Account[] = [
+      {
+        id: "checking-1",
+        name: "Checking",
+        type: "depository",
+        subtype: "checking",
+        balance: 5000,
+        institution: "Test Bank",
+      },
+      {
+        id: "investment-1",
+        name: "Brokerage",
+        type: "investment", // Not included in current implementation
+        subtype: "brokerage",
+        balance: 50000,
+        institution: "Fidelity",
+      },
+      {
+        id: "loan-1",
+        name: "Car Loan",
+        type: "loan", // Not included in current implementation
+        subtype: "auto",
+        balance: 15000,
+        institution: "Credit Union",
+      },
+    ];
+
+    const result = calculateBalanceSheet(accounts);
+
+    // Only depository should be counted as assets
+    expect(result.assets.liquidAssets.accounts).toHaveLength(1);
+    expect(result.assets.totalAssets).toBe(5000);
+
+    // No credit accounts, so no liabilities
+    expect(result.liabilities.creditCardDebt.accounts).toHaveLength(0);
+    expect(result.liabilities.totalLiabilities).toBe(0);
+
+    // Net worth based only on counted accounts
+    expect(result.netWorth).toBe(5000);
+  });
+
+  it("preserves account details in balance sheet accounts", () => {
+    const accounts: Account[] = [
+      {
+        id: "checking-123",
+        name: "Primary Checking",
+        type: "depository",
+        subtype: "checking",
+        balance: 5000,
+        institution: "Bank of America",
+      },
+    ];
+
+    const result = calculateBalanceSheet(accounts);
+
+    const bsAccount = result.assets.liquidAssets.accounts[0];
+    expect(bsAccount.id).toBe("checking-123");
+    expect(bsAccount.name).toBe("Primary Checking");
+    expect(bsAccount.type).toBe("depository");
+    expect(bsAccount.subtype).toBe("checking");
+    expect(bsAccount.balance).toBe(5000);
+    expect(bsAccount.institution).toBe("Bank of America");
+  });
+
+  it("includes ISO date string in asOfDate", () => {
+    const accounts = createTestAccounts();
+    const result = calculateBalanceSheet(accounts);
+
+    // Should be a valid ISO date string
+    expect(result.asOfDate).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+    // Should be parseable
+    expect(new Date(result.asOfDate).toString()).not.toBe("Invalid Date");
+  });
+
+  it("handles depository accounts only (no credit)", () => {
+    const accounts: Account[] = [
+      {
+        id: "checking-1",
+        name: "Checking",
+        type: "depository",
+        subtype: "checking",
+        balance: 5000,
+        institution: "Test Bank",
+      },
+    ];
+
+    const result = calculateBalanceSheet(accounts);
+
+    expect(result.assets.totalAssets).toBe(5000);
+    expect(result.liabilities.totalLiabilities).toBe(0);
+    expect(result.liabilities.creditCardDebt.accounts).toHaveLength(0);
+    expect(result.netWorth).toBe(5000);
+  });
+
+  it("handles credit accounts only (no depository)", () => {
+    const accounts: Account[] = [
+      {
+        id: "cc-1",
+        name: "Credit Card",
+        type: "credit",
+        subtype: "credit card",
+        balance: 2000,
+        institution: "Chase",
+      },
+    ];
+
+    const result = calculateBalanceSheet(accounts);
+
+    expect(result.assets.totalAssets).toBe(0);
+    expect(result.assets.liquidAssets.accounts).toHaveLength(0);
+    expect(result.liabilities.totalLiabilities).toBe(2000);
+    expect(result.netWorth).toBe(-2000); // Pure debt
   });
 });

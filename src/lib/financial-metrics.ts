@@ -7,6 +7,9 @@ import type {
   MonthlyCashFlow,
   CategoryBreakdownItem,
   CategoryBreakdownResult,
+  BalanceSheet,
+  BalanceSheetAccount,
+  BalanceSheetAccountGroup,
 } from "@/types";
 import { classifyAllTransactions, getCashFlowTransactions } from "./transaction-classifier";
 
@@ -384,5 +387,81 @@ export function calculateCategoryBreakdown(
     totalExpenses,
     totalIncome,
     periodMonths,
+  };
+}
+
+/**
+ * Calculate balance sheet from connected accounts
+ *
+ * Creates a point-in-time snapshot of assets and liabilities:
+ * - Liquid Assets: Sum of depository account balances (checking, savings)
+ * - Credit Card Debt: Sum of credit card balances (as liabilities)
+ * - Net Worth: Assets - Liabilities
+ *
+ * Note: Credit card balances from Plaid are typically positive numbers
+ * representing what the user owes.
+ */
+export function calculateBalanceSheet(accounts: Account[]): BalanceSheet {
+  // Separate accounts by type
+  const depositoryAccounts: BalanceSheetAccount[] = [];
+  const creditAccounts: BalanceSheetAccount[] = [];
+
+  for (const account of accounts) {
+    const bsAccount: BalanceSheetAccount = {
+      id: account.id,
+      name: account.name,
+      type: account.type,
+      subtype: account.subtype,
+      balance: account.balance ?? 0,
+      institution: account.institution,
+    };
+
+    if (account.type === "depository") {
+      depositoryAccounts.push(bsAccount);
+    } else if (account.type === "credit") {
+      creditAccounts.push(bsAccount);
+    }
+    // Other account types (investment, loan, etc.) could be added later
+  }
+
+  // Calculate totals
+  const totalLiquidAssets = depositoryAccounts.reduce(
+    (sum, acc) => sum + acc.balance,
+    0
+  );
+  const totalCreditCardDebt = creditAccounts.reduce(
+    (sum, acc) => sum + acc.balance,
+    0
+  );
+
+  // Build grouped structures
+  const liquidAssets: BalanceSheetAccountGroup = {
+    groupName: "Liquid Assets",
+    accounts: depositoryAccounts,
+    totalBalance: totalLiquidAssets,
+  };
+
+  const creditCardDebt: BalanceSheetAccountGroup = {
+    groupName: "Credit Card Debt",
+    accounts: creditAccounts,
+    totalBalance: totalCreditCardDebt,
+  };
+
+  // Calculate net worth
+  const totalAssets = totalLiquidAssets;
+  const totalLiabilities = totalCreditCardDebt;
+  const netWorth = totalAssets - totalLiabilities;
+
+  return {
+    assets: {
+      liquidAssets,
+      totalAssets,
+    },
+    liabilities: {
+      creditCardDebt,
+      totalLiabilities,
+    },
+    netWorth,
+    asOfDate: new Date().toISOString(),
   };
 }

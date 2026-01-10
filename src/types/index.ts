@@ -261,3 +261,41 @@ export interface CategoryBreakdownResult {
   totalIncome: number;
   periodMonths: number;
 }
+
+// Individual account in balance sheet
+export interface BalanceSheetAccount {
+  id: string;
+  name: string;
+  type: string; // "depository", "credit", etc.
+  subtype: string | null;
+  balance: number;
+  institution: string | null;
+}
+
+// Balance sheet grouping by account type
+export interface BalanceSheetAccountGroup {
+  groupName: string; // "Liquid Assets", "Credit Card Debt", etc.
+  accounts: BalanceSheetAccount[];
+  totalBalance: number;
+}
+
+// Full balance sheet data structure
+export interface BalanceSheet {
+  // Assets section
+  assets: {
+    liquidAssets: BalanceSheetAccountGroup; // Depository accounts
+    totalAssets: number;
+  };
+
+  // Liabilities section
+  liabilities: {
+    creditCardDebt: BalanceSheetAccountGroup; // Credit card accounts
+    totalLiabilities: number;
+  };
+
+  // Net worth calculation
+  netWorth: number;
+
+  // Metadata
+  asOfDate: string; // ISO date string for point-in-time snapshot
+}
