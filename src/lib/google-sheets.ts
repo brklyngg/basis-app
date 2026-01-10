@@ -14,6 +14,403 @@ const COLORS = {
   lightBorder: { red: 0.9, green: 0.9, blue: 0.9 },       // Very light gray
 };
 
+// Financial Analyst Standard Color Coding (per CLAUDE.md)
+// - Blue text: Hard-coded inputs, historical data
+// - Black text: Formulas referencing same sheet
+// - Green text: Cross-sheet references
+// - Red text: Errors, warnings, external links
+const FINANCIAL_COLORS = {
+  // Text colors (financial analyst standard)
+  inputBlue: { red: 0, green: 0, blue: 1 },           // Hard-coded inputs
+  formulaBlack: { red: 0, green: 0, blue: 0 },        // Same-sheet formulas
+  crossRefGreen: { red: 0, green: 0.5, blue: 0 },     // Cross-sheet references
+  errorRed: { red: 1, green: 0, blue: 0 },            // Errors/external links
+
+  // Background colors for Dashboard
+  dashboardHeaderBg: { red: 0.18, green: 0.24, blue: 0.30 }, // #2F3D4C
+  sectionHeaderBg: { red: 0.25, green: 0.32, blue: 0.40 },   // Slightly lighter slate
+  positiveGreenBg: { red: 0.85, green: 0.95, blue: 0.85 },   // Light green for positive
+  negativeRedBg: { red: 0.95, green: 0.85, blue: 0.85 },     // Light red for negative
+  neutralGrayBg: { red: 0.96, green: 0.96, blue: 0.96 },     // Very light gray for data rows
+};
+
+// Dashboard section row indices (for formatting reference)
+interface DashboardLayout {
+  titleRow: number;
+  bigPictureHeaderRow: number;
+  bigPictureStartRow: number;
+  bigPictureEndRow: number;
+  keyRatiosHeaderRow: number;
+  keyRatiosStartRow: number;
+  keyRatiosEndRow: number;
+  spendingHeaderRow: number;
+  spendingStartRow: number;
+  spendingEndRow: number;
+  insightsHeaderRow: number;
+  insightsStartRow: number;
+  insightsEndRow: number;
+  totalRows: number;
+}
+
+/**
+ * Build dashboard sheet data with section headers and placeholder values
+ * Dashboard is the executive summary - first sheet users see
+ */
+function buildDashboardData(statement: FinancialStatement): {
+  data: (string | number)[][];
+  layout: DashboardLayout;
+} {
+  const data: (string | number)[][] = [];
+  const dateRangeStr = `${formatMonthDisplay(statement.dateRange.start)} - ${formatMonthDisplay(statement.dateRange.end)}`;
+
+  // Row 0: Title
+  data.push([`Financial Dashboard`, "", "", dateRangeStr]);
+  const titleRow = 0;
+
+  // Row 1: Empty spacer
+  data.push([]);
+
+  // ========== THE BIG PICTURE SECTION ==========
+  // Row 2: Section header
+  data.push(["THE BIG PICTURE", "", "", ""]);
+  const bigPictureHeaderRow = 2;
+
+  // Row 3: Column headers for Big Picture
+  data.push(["Metric", "Period Total", "Monthly Average", "Trend"]);
+  const bigPictureStartRow = 3;
+
+  // Row 4-6: Big Picture metrics (placeholders - to be formula-driven in US-006)
+  data.push(["Total Income", "$0.00", "$0.00", ""]);
+  data.push(["Total Expenses", "$0.00", "$0.00", ""]);
+  data.push(["Net Cash Flow", "$0.00", "$0.00", ""]);
+  const bigPictureEndRow = 6;
+
+  // Row 7: Empty spacer
+  data.push([]);
+
+  // ========== KEY RATIOS SECTION ==========
+  // Row 8: Section header
+  data.push(["KEY RATIOS", "", "", ""]);
+  const keyRatiosHeaderRow = 8;
+
+  // Row 9: Column headers for Key Ratios
+  data.push(["Ratio", "Your Value", "Target", "Status"]);
+  const keyRatiosStartRow = 9;
+
+  // Row 10-12: Key Ratio metrics (placeholders - to be formula-driven in US-007)
+  data.push(["Savings Rate", "0%", "20%", ""]);
+  data.push(["Essential Expenses", "0%", "50%", ""]);
+  data.push(["Discretionary Expenses", "0%", "30%", ""]);
+  const keyRatiosEndRow = 12;
+
+  // Row 13: Empty spacer
+  data.push([]);
+
+  // ========== WHERE YOUR MONEY GOES SECTION ==========
+  // Row 14: Section header
+  data.push(["WHERE YOUR MONEY GOES", "", "", ""]);
+  const spendingHeaderRow = 14;
+
+  // Row 15: Column headers for Spending Breakdown
+  data.push(["Category", "Monthly Avg", "% of Expenses", "Visual"]);
+  const spendingStartRow = 15;
+
+  // Row 16-22: Top spending categories (placeholders - to be formula-driven in US-008)
+  data.push(["Category 1", "$0.00", "0%", ""]);
+  data.push(["Category 2", "$0.00", "0%", ""]);
+  data.push(["Category 3", "$0.00", "0%", ""]);
+  data.push(["Category 4", "$0.00", "0%", ""]);
+  data.push(["Category 5", "$0.00", "0%", ""]);
+  data.push(["Category 6", "$0.00", "0%", ""]);
+  data.push(["Category 7", "$0.00", "0%", ""]);
+  const spendingEndRow = 22;
+
+  // Row 23: Empty spacer
+  data.push([]);
+
+  // ========== INSIGHTS SECTION ==========
+  // Row 24: Section header
+  data.push(["INSIGHTS", "", "", ""]);
+  const insightsHeaderRow = 24;
+
+  // Row 25: Placeholder explanation
+  data.push(["AI-powered insights will appear here after analysis.", "", "", ""]);
+  const insightsStartRow = 25;
+
+  // Row 26-30: Insight placeholders (to be populated in US-016)
+  data.push(["", "", "", ""]);
+  data.push(["", "", "", ""]);
+  data.push(["", "", "", ""]);
+  data.push(["", "", "", ""]);
+  data.push(["", "", "", ""]);
+  const insightsEndRow = 30;
+
+  // Row 31: Empty row for spacing
+  data.push([]);
+
+  // Row 32: Note about named ranges (per US-013)
+  data.push(["Note: Use named ranges (TotalIncome, TotalExpenses, NetCashFlow, SavingsRate) to reference key metrics.", "", "", ""]);
+
+  const layout: DashboardLayout = {
+    titleRow,
+    bigPictureHeaderRow,
+    bigPictureStartRow,
+    bigPictureEndRow,
+    keyRatiosHeaderRow,
+    keyRatiosStartRow,
+    keyRatiosEndRow,
+    spendingHeaderRow,
+    spendingStartRow,
+    spendingEndRow,
+    insightsHeaderRow,
+    insightsStartRow,
+    insightsEndRow,
+    totalRows: data.length,
+  };
+
+  return { data, layout };
+}
+
+/**
+ * Build formatting requests for the Dashboard sheet
+ */
+function buildDashboardFormattingRequests(
+  sheetId: number,
+  layout: DashboardLayout
+): sheets_v4.Schema$Request[] {
+  const requests: sheets_v4.Schema$Request[] = [];
+  const columnCount = 4; // 4 columns: A through D
+
+  // 1. Freeze title row and first column for navigation
+  requests.push({
+    updateSheetProperties: {
+      properties: {
+        sheetId,
+        gridProperties: { frozenRowCount: 1, frozenColumnCount: 1 },
+      },
+      fields: "gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
+    },
+  });
+
+  // 2. Title row styling (Row 0)
+  requests.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1 },
+      cell: {
+        userEnteredFormat: {
+          backgroundColor: FINANCIAL_COLORS.dashboardHeaderBg,
+          horizontalAlignment: "LEFT",
+          textFormat: {
+            foregroundColor: COLORS.headerText,
+            fontSize: 16,
+            bold: true,
+          },
+        },
+      },
+      fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+    },
+  });
+
+  // 3. Style all section headers (THE BIG PICTURE, KEY RATIOS, etc.)
+  const sectionHeaderRows = [
+    layout.bigPictureHeaderRow,
+    layout.keyRatiosHeaderRow,
+    layout.spendingHeaderRow,
+    layout.insightsHeaderRow,
+  ];
+
+  for (const row of sectionHeaderRows) {
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: row, endRowIndex: row + 1 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: FINANCIAL_COLORS.sectionHeaderBg,
+            horizontalAlignment: "LEFT",
+            textFormat: {
+              foregroundColor: COLORS.headerText,
+              fontSize: 12,
+              bold: true,
+            },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+      },
+    });
+
+    // Merge section header cells across all columns
+    requests.push({
+      mergeCells: {
+        range: {
+          sheetId,
+          startRowIndex: row,
+          endRowIndex: row + 1,
+          startColumnIndex: 0,
+          endColumnIndex: columnCount,
+        },
+        mergeType: "MERGE_ALL",
+      },
+    });
+  }
+
+  // 4. Style column header rows (below each section header)
+  const columnHeaderRows = [
+    layout.bigPictureStartRow,
+    layout.keyRatiosStartRow,
+    layout.spendingStartRow,
+  ];
+
+  for (const row of columnHeaderRows) {
+    requests.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: row, endRowIndex: row + 1 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: COLORS.sectionBg,
+            horizontalAlignment: "CENTER",
+            textFormat: {
+              foregroundColor: FINANCIAL_COLORS.formulaBlack,
+              fontSize: 10,
+              bold: true,
+            },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment)",
+      },
+    });
+  }
+
+  // 5. Style data rows with alternating colors for readability
+  const dataRowRanges = [
+    { start: layout.bigPictureStartRow + 1, end: layout.bigPictureEndRow + 1 },
+    { start: layout.keyRatiosStartRow + 1, end: layout.keyRatiosEndRow + 1 },
+    { start: layout.spendingStartRow + 1, end: layout.spendingEndRow + 1 },
+  ];
+
+  for (const range of dataRowRanges) {
+    // Alternating row colors
+    requests.push({
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{
+            sheetId,
+            startRowIndex: range.start,
+            endRowIndex: range.end,
+            startColumnIndex: 0,
+            endColumnIndex: columnCount,
+          }],
+          booleanRule: {
+            condition: {
+              type: "CUSTOM_FORMULA",
+              values: [{ userEnteredValue: "=MOD(ROW(),2)=0" }],
+            },
+            format: {
+              backgroundColor: FINANCIAL_COLORS.neutralGrayBg,
+            },
+          },
+        },
+        index: 0,
+      },
+    });
+  }
+
+  // 6. Set column widths for better readability
+  const columnWidths = [
+    { column: 0, width: 180 }, // Metric/Category names
+    { column: 1, width: 130 }, // Period Total / Monthly Avg
+    { column: 2, width: 130 }, // Monthly Avg / Target
+    { column: 3, width: 150 }, // Trend / Status / Visual
+  ];
+
+  for (const { column, width } of columnWidths) {
+    requests.push({
+      updateDimensionProperties: {
+        range: {
+          sheetId,
+          dimension: "COLUMNS",
+          startIndex: column,
+          endIndex: column + 1,
+        },
+        properties: { pixelSize: width },
+        fields: "pixelSize",
+      },
+    });
+  }
+
+  // 7. Style the Insights section rows
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.insightsStartRow,
+        endRowIndex: layout.insightsEndRow + 1,
+      },
+      cell: {
+        userEnteredFormat: {
+          horizontalAlignment: "LEFT",
+          textFormat: {
+            fontSize: 10,
+            foregroundColor: FINANCIAL_COLORS.formulaBlack,
+          },
+          wrapStrategy: "WRAP",
+        },
+      },
+      fields: "userEnteredFormat(horizontalAlignment,textFormat,wrapStrategy)",
+    },
+  });
+
+  // 8. Add light borders around data sections
+  const borderedRanges = [
+    { start: layout.bigPictureHeaderRow, end: layout.bigPictureEndRow + 1 },
+    { start: layout.keyRatiosHeaderRow, end: layout.keyRatiosEndRow + 1 },
+    { start: layout.spendingHeaderRow, end: layout.spendingEndRow + 1 },
+    { start: layout.insightsHeaderRow, end: layout.insightsEndRow + 1 },
+  ];
+
+  for (const range of borderedRanges) {
+    requests.push({
+      updateBorders: {
+        range: {
+          sheetId,
+          startRowIndex: range.start,
+          endRowIndex: range.end,
+          startColumnIndex: 0,
+          endColumnIndex: columnCount,
+        },
+        top: { style: "SOLID", width: 1, color: COLORS.borderColor },
+        bottom: { style: "SOLID", width: 1, color: COLORS.borderColor },
+        left: { style: "SOLID", width: 1, color: COLORS.borderColor },
+        right: { style: "SOLID", width: 1, color: COLORS.borderColor },
+        innerHorizontal: { style: "SOLID", width: 1, color: COLORS.lightBorder },
+        innerVertical: { style: "SOLID", width: 1, color: COLORS.lightBorder },
+      },
+    });
+  }
+
+  // 9. Style the note row at the bottom
+  requests.push({
+    repeatCell: {
+      range: {
+        sheetId,
+        startRowIndex: layout.totalRows - 1,
+        endRowIndex: layout.totalRows,
+      },
+      cell: {
+        userEnteredFormat: {
+          textFormat: {
+            fontSize: 9,
+            italic: true,
+            foregroundColor: { red: 0.5, green: 0.5, blue: 0.5 },
+          },
+        },
+      },
+      fields: "userEnteredFormat.textFormat",
+    },
+  });
+
+  return requests;
+}
+
 /**
  * Create a Google Sheets OAuth2 client from access token
  */
@@ -737,6 +1134,10 @@ function formatDateRangeTitle(dateRange: { start: string; end: string }): string
 
 /**
  * Create a financial statement spreadsheet in Google Sheets
+ * Dashboard is the first sheet (executive summary), followed by:
+ * - Summary (Income Statement format)
+ * - Detailed Categories
+ * - Transactions (if provided)
  */
 export async function createFinancialSpreadsheet(
   accessToken: string,
@@ -745,21 +1146,22 @@ export async function createFinancialSpreadsheet(
 ): Promise<{ url: string; id: string }> {
   const sheets = createSheetsClient(accessToken);
 
-  // 1. Create spreadsheet with all sheets
+  // 1. Create spreadsheet with all sheets (Dashboard first)
   const sheetDefinitions = [
-    { properties: { title: "Summary", index: 0 } },
-    { properties: { title: "Detailed Categories", index: 1 } },
+    { properties: { title: "Dashboard", index: 0 } },
+    { properties: { title: "Summary", index: 1 } },
+    { properties: { title: "Detailed Categories", index: 2 } },
   ];
 
   // Add Transactions sheet if transactions are provided
   if (transactions && transactions.length > 0) {
-    sheetDefinitions.push({ properties: { title: "Transactions", index: 2 } });
+    sheetDefinitions.push({ properties: { title: "Transactions", index: 3 } });
   }
 
   const spreadsheet = await sheets.spreadsheets.create({
     requestBody: {
       properties: {
-        title: `Financial Statement - ${formatDateRangeTitle(statement.dateRange)}`,
+        title: `Financial Dashboard - ${formatDateRangeTitle(statement.dateRange)}`,
         locale: "en_US",
       },
       sheets: sheetDefinitions,
@@ -767,14 +1169,18 @@ export async function createFinancialSpreadsheet(
   });
 
   const spreadsheetId = spreadsheet.data.spreadsheetId!;
-  const summarySheetId = spreadsheet.data.sheets![0].properties!.sheetId!;
-  const detailedSheetId = spreadsheet.data.sheets![1].properties!.sheetId!;
+  const dashboardSheetId = spreadsheet.data.sheets![0].properties!.sheetId!;
+  const summarySheetId = spreadsheet.data.sheets![1].properties!.sheetId!;
+  const detailedSheetId = spreadsheet.data.sheets![2].properties!.sheetId!;
   const transactionsSheetId = transactions && transactions.length > 0
-    ? spreadsheet.data.sheets![2].properties!.sheetId!
+    ? spreadsheet.data.sheets![3].properties!.sheetId!
     : null;
 
   // 2. Build data for all sheets
+  const { data: dashboardData, layout: dashboardLayout } = buildDashboardData(statement);
+
   const dataUpdates: { range: string; values: (string | number)[][] }[] = [
+    { range: "Dashboard!A1", values: dashboardData },
     { range: "Summary!A1", values: buildSummaryData(statement) },
     { range: "Detailed Categories!A1", values: buildDetailedData(statement) },
   ];
@@ -795,8 +1201,9 @@ export async function createFinancialSpreadsheet(
     },
   });
 
-  // 4. Build formatting requests
+  // 4. Build formatting requests (Dashboard first for consistent ordering)
   const formattingRequests = [
+    ...buildDashboardFormattingRequests(dashboardSheetId, dashboardLayout),
     ...buildSummaryFormattingRequests(summarySheetId, statement),
     ...buildDetailedFormattingRequests(detailedSheetId, statement),
   ];
