@@ -197,6 +197,123 @@ function getColumnLetter(index: number): string {
 }
 
 /**
+ * Build named range requests for key financial metrics (US-013)
+ * Creates named ranges that users can reference in their own formulas
+ *
+ * Named ranges created:
+ * - TotalIncome: Total column of TOTAL INCOME row in Summary sheet
+ * - TotalExpenses: Total column of TOTAL EXPENSES row in Summary sheet
+ * - NetCashFlow: Total column of NET CASH FLOW row in Summary sheet
+ * - SavingsRate: Total column of SAVINGS RATE row in Summary sheet
+ * - TransactionData: All transaction data rows (excluding header) in Transactions sheet
+ */
+function buildNamedRangeRequests(
+  summarySheetId: number,
+  transactionsSheetId: number | null,
+  summaryRowIndices: {
+    totalIncomeRow: number;
+    totalExpensesRow: number;
+    netCashFlowRow: number;
+    savingsRateRow: number;
+  },
+  totalColumnIndex: number,
+  transactionRowCount: number
+): sheets_v4.Schema$Request[] {
+  const requests: sheets_v4.Schema$Request[] = [];
+
+  // Convert 1-indexed row numbers to 0-indexed for API
+  const totalIncomeRowIdx = summaryRowIndices.totalIncomeRow - 1;
+  const totalExpensesRowIdx = summaryRowIndices.totalExpensesRow - 1;
+  const netCashFlowRowIdx = summaryRowIndices.netCashFlowRow - 1;
+  const savingsRateRowIdx = summaryRowIndices.savingsRateRow - 1;
+
+  // TotalIncome named range - references Summary sheet, Total column, TOTAL INCOME row
+  requests.push({
+    addNamedRange: {
+      namedRange: {
+        name: "TotalIncome",
+        range: {
+          sheetId: summarySheetId,
+          startRowIndex: totalIncomeRowIdx,
+          endRowIndex: totalIncomeRowIdx + 1,
+          startColumnIndex: totalColumnIndex,
+          endColumnIndex: totalColumnIndex + 1,
+        },
+      },
+    },
+  });
+
+  // TotalExpenses named range - references Summary sheet, Total column, TOTAL EXPENSES row
+  requests.push({
+    addNamedRange: {
+      namedRange: {
+        name: "TotalExpenses",
+        range: {
+          sheetId: summarySheetId,
+          startRowIndex: totalExpensesRowIdx,
+          endRowIndex: totalExpensesRowIdx + 1,
+          startColumnIndex: totalColumnIndex,
+          endColumnIndex: totalColumnIndex + 1,
+        },
+      },
+    },
+  });
+
+  // NetCashFlow named range - references Summary sheet, Total column, NET CASH FLOW row
+  requests.push({
+    addNamedRange: {
+      namedRange: {
+        name: "NetCashFlow",
+        range: {
+          sheetId: summarySheetId,
+          startRowIndex: netCashFlowRowIdx,
+          endRowIndex: netCashFlowRowIdx + 1,
+          startColumnIndex: totalColumnIndex,
+          endColumnIndex: totalColumnIndex + 1,
+        },
+      },
+    },
+  });
+
+  // SavingsRate named range - references Summary sheet, Total column, SAVINGS RATE row
+  requests.push({
+    addNamedRange: {
+      namedRange: {
+        name: "SavingsRate",
+        range: {
+          sheetId: summarySheetId,
+          startRowIndex: savingsRateRowIdx,
+          endRowIndex: savingsRateRowIdx + 1,
+          startColumnIndex: totalColumnIndex,
+          endColumnIndex: totalColumnIndex + 1,
+        },
+      },
+    },
+  });
+
+  // TransactionData named range - references Transactions sheet, all data rows (excluding header)
+  // Only create if Transactions sheet exists
+  if (transactionsSheetId !== null && transactionRowCount > 1) {
+    requests.push({
+      addNamedRange: {
+        namedRange: {
+          name: "TransactionData",
+          range: {
+            sheetId: transactionsSheetId,
+            startRowIndex: 1, // Skip header row (row 0)
+            endRowIndex: transactionRowCount, // All data rows
+            startColumnIndex: 0, // Column A (Date)
+            endColumnIndex: 6, // Column F (Classification) - all 6 columns
+          },
+        },
+      },
+    });
+  }
+
+  return requests;
+}
+
+/**
  * Build trend text for income or expenses
  * Compares most recent month to prior month
  */
@@ -2212,7 +2329,7 @@ function buildDashboardData(statement: FinancialStatement): {
   data.push([]);
 
   // Row 32: Note about named ranges (per US-013)
-  data.push(["Note: Use named ranges (TotalIncome, TotalExpenses, NetCashFlow, SavingsRate) to reference key metrics.", "", "", "", ""]);
+  data.push(["Note: Use named ranges (TotalIncome, TotalExpenses, NetCashFlow, SavingsRate, TransactionData) to reference key metrics.", "", "", "", ""]);
 
   const layout: DashboardLayout = {
     titleRow,
@@ -3943,11 +4060,32 @@ export async function createFinancialSpreadsheet(
     );
   }
 
-  // 5. Apply all formatting in a single batchUpdate
+  // 5. Build named range requests (US-013)
+  // Get Summary sheet row indices for named ranges
+  const summaryIndices = findSummaryRowIndices(statement);
+  const totalColumnIndex = statement.months.length + 2; // Category, Subcategory, [months...], Total
+
+  const namedRangeRequests = buildNamedRangeRequests(
+    summarySheetId,
+    transactionsSheetId,
+    {
+      totalIncomeRow: summaryIndices.totalIncomeRow,
+      totalExpensesRow: summaryIndices.totalExpensesRow,
+      netCashFlowRow: summaryIndices.netCashFlowRow,
+      savingsRateRow: summaryIndices.savingsRateRow,
+    },
+    totalColumnIndex,
+    transactionsData.length
+  );
+
+  // Combine formatting and named range requests
+  const allRequests = [...formattingRequests, ...namedRangeRequests];
+
+  // 6. Apply all formatting and named ranges in a single batchUpdate
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
-      requests: formattingRequests,
+      requests: allRequests,
     },
   });
 
