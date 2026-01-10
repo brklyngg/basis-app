@@ -232,3 +232,32 @@ This ensures the user knows they're working with complete, accurate data.
   - For MoM percentage change when prior period is zero: use 100/-100 as indicator, not infinity
 
 ---
+
+## 2025-01-09 23:47 - US-007
+- What was implemented:
+  - Extended `findSummaryRowIndices()` to locate SUBTOTAL rows for Essential and Discretionary expense sections
+  - Added formula-driven Key Ratios section with 5 columns: Ratio, Your Value, Target, Progress, Status
+  - Savings Rate formula references Summary sheet savings rate directly
+  - Essential/Discretionary Expenses formulas calculate % of income from respective SUBTOTAL rows
+  - REPT() progress bars create visual 10-block gauges (█ for filled, ░ for empty)
+  - Status column uses IF formulas to display emoji indicators (✓ On Track, ⚠ Close, ⚡ Needs Attention)
+  - Target thresholds: Savings ≥20%, Essential ≤50%, Discretionary ≤30%
+  - 3-tier conditional formatting for each ratio:
+    - Green background when meeting/exceeding target
+    - Yellow background when close to target
+    - Red background when concerning
+  - Percentage format applied to "Your Value" column with green text (cross-sheet ref standard)
+  - Progress bar column uses monospace font (Roboto Mono) for consistent display
+
+- Files changed:
+  - `src/lib/google-sheets.ts` - Extended findSummaryRowIndices(), updated buildDashboardData() and buildDashboardFormattingRequests() (+472 lines)
+
+- **Learnings for future iterations:**
+  - To find SUBTOTAL rows in different sections, track which section you're in with boolean flags as you iterate
+  - REPT("█", count) creates Unicode block characters - use monospace font for consistent spacing
+  - For 3-tier conditional formatting, order matters: add rules in order of specificity (most specific first)
+  - Google Sheets conditional formatting supports CUSTOM_FORMULA for AND/OR conditions
+  - When expanding column count in Dashboard, update all row arrays to have consistent length
+  - The layout object tracks row indices which are 0-indexed; formulas need 1-indexed row references
+
+---
