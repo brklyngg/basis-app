@@ -319,3 +319,38 @@ This ensures the user knows they're working with complete, accurate data.
   - Subtotal/Total rows keep the default black text since they contain same-sheet formulas
 
 ---
+
+## 2025-01-10 00:25 - US-010
+- What was implemented:
+  - Created 'Balance Sheet' sheet as the third sheet (after Dashboard and Income Statement)
+  - Added `BalanceSheetLayout` interface to track row indices for formatting
+  - Added `buildBalanceSheetData()` function creating Balance Sheet structure:
+    - ASSETS section with Liquid Assets subheading (lists all depository accounts)
+    - LIABILITIES section with Credit Card Debt subheading (lists all credit accounts)
+    - NET WORTH calculation as formula (=Total Assets - Total Liabilities)
+    - Point-in-time snapshot with formatted "As of: [date]" display
+  - Added `buildBalanceSheetFormattingRequests()` function for professional styling:
+    - Blue text for account balances (hard-coded inputs from Plaid)
+    - Black text for formula cells (SUM totals, NET WORTH calculation)
+    - Conditional formatting for NET WORTH (green bg when positive, red bg when negative)
+    - Currency formatting for all balance columns
+    - Dark headers, section headers with light gray background
+    - Professional borders with thicker section dividers
+  - Updated `createFinancialSpreadsheet()` signature to accept optional `accounts` parameter
+  - Updated export API route to pass `allAccounts` to create the Balance Sheet
+  - Handles empty account states gracefully with placeholder text
+
+- Files changed:
+  - `src/lib/google-sheets.ts` - Added BalanceSheetLayout interface, buildBalanceSheetData(), buildBalanceSheetFormattingRequests(), updated imports and createFinancialSpreadsheet() (+580 lines)
+  - `src/app/api/export/sheets/route.ts` - Pass accounts to createFinancialSpreadsheet()
+
+- **Learnings for future iterations:**
+  - Balance Sheet is positioned at index 2 (Dashboard=0, Income Statement=1, Balance Sheet=2)
+  - Sheet indices shift when adding new sheets - Summary becomes index 3, Detailed Categories becomes index 4, Transactions becomes index 5
+  - The `calculateBalanceSheet()` function from financial-metrics.ts handles the grouping logic - just import and use it
+  - For dynamic row layouts, track the current row with `data.length` as you build the array
+  - Formulas referencing dynamic row positions: use 1-indexed (e.g., `=B${dataRow + 1}`) since layout indices are 0-indexed
+  - Empty account states should show placeholder text (e.g., "No depository accounts connected") with balance 0
+  - The accounts parameter is optional in the function signature to maintain backward compatibility
+
+---
