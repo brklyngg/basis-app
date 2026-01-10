@@ -66,6 +66,8 @@ function findTopSpendingCategories(statement: FinancialStatement): {
   }[];
   totalColumnLetter: string;
   avgColumnLetter: string;
+  firstMonthColumn: string; // For SPARKLINE range (e.g., "B")
+  lastMonthColumn: string; // For SPARKLINE range (e.g., "D" for 3 months)
 } {
   // Build detailed data to find row indices
   const detailedData = buildDetailedData(statement);
@@ -91,6 +93,8 @@ function findTopSpendingCategories(statement: FinancialStatement): {
   // Column letters for Total and Avg in Detailed Categories sheet
   // Structure: Category, [months...], Total, Avg
   const monthCount = statement.months.length;
+  const firstMonthColumnIndex = 1; // 0-indexed: Cat=0, first month at 1
+  const lastMonthColumnIndex = monthCount; // Last month before Total
   const totalColumnIndex = monthCount + 1; // 0-indexed: Cat=0, months, Total
   const avgColumnIndex = monthCount + 2;
 
@@ -98,6 +102,8 @@ function findTopSpendingCategories(statement: FinancialStatement): {
     categories,
     totalColumnLetter: getColumnLetter(totalColumnIndex),
     avgColumnLetter: getColumnLetter(avgColumnIndex),
+    firstMonthColumn: getColumnLetter(firstMonthColumnIndex),
+    lastMonthColumn: getColumnLetter(lastMonthColumnIndex),
   };
 }
 
@@ -114,6 +120,8 @@ function findSummaryRowIndices(statement: FinancialStatement): {
   discretionarySubtotalRow: number;
   lastDataColumn: string; // e.g., "G" for column with Total
   avgColumn: string; // e.g., "H" for column with Monthly Avg
+  firstMonthColumn: string; // e.g., "C" for first month data column
+  lastMonthColumn: string; // e.g., "F" for last month data column (before Total)
 } {
   // Build the summary data to find row positions
   const summaryData = buildSummaryData(statement);
@@ -168,6 +176,8 @@ function findSummaryRowIndices(statement: FinancialStatement): {
   // Calculate the column letters for Total and Avg
   // Structure: Category, Subcategory, [months...], Total, Avg
   const monthCount = statement.months.length;
+  const firstMonthColumnIndex = 2; // 0-indexed: Cat=0, Sub=1, first month at 2
+  const lastMonthColumnIndex = monthCount + 1; // Last month before Total
   const totalColumnIndex = monthCount + 2; // 0-indexed: Cat=0, Sub=1, months, Total
   const avgColumnIndex = monthCount + 3;
 
@@ -180,6 +190,8 @@ function findSummaryRowIndices(statement: FinancialStatement): {
     discretionarySubtotalRow,
     lastDataColumn: getColumnLetter(totalColumnIndex),
     avgColumn: getColumnLetter(avgColumnIndex),
+    firstMonthColumn: getColumnLetter(firstMonthColumnIndex),
+    lastMonthColumn: getColumnLetter(lastMonthColumnIndex),
   };
 }
 
@@ -2146,6 +2158,8 @@ function buildDashboardData(statement: FinancialStatement): {
     discretionarySubtotalRow,
     lastDataColumn,
     avgColumn,
+    firstMonthColumn,
+    lastMonthColumn,
   } = summaryIndices;
 
   // Calculate trend text based on month-over-month data
@@ -2161,7 +2175,7 @@ function buildDashboardData(statement: FinancialStatement): {
   const cashFlowTrendText = buildCashFlowTrendText(momPercentage);
 
   // Row 0: Title
-  data.push([`Financial Dashboard`, "", "", "", dateRangeStr]);
+  data.push([`Financial Dashboard`, "", "", "", dateRangeStr, ""]);
   const titleRow = 0;
 
   // Row 1: Empty spacer
@@ -2169,34 +2183,47 @@ function buildDashboardData(statement: FinancialStatement): {
 
   // ========== THE BIG PICTURE SECTION ==========
   // Row 2: Section header
-  data.push(["THE BIG PICTURE", "", "", "", ""]);
+  data.push(["THE BIG PICTURE", "", "", "", "", ""]);
   const bigPictureHeaderRow = 2;
 
   // Row 3: Column headers for Big Picture
-  data.push(["Metric", "Period Total", "Monthly Average", "Trend", ""]);
+  data.push(["Metric", "Period Total", "Monthly Average", "Trend", "Trend Chart", ""]);
   const bigPictureStartRow = 3;
 
   // Row 4-6: Big Picture metrics with formulas referencing Summary sheet
   // Using formulas to reference Summary sheet - values update if source changes
+  // SPARKLINE formulas reference monthly data range for trend visualization
+  // SPARKLINE options: {"charttype":"line","color":"green"} for income
+  const incomeSparkline = `=SPARKLINE('Summary'!${firstMonthColumn}${totalIncomeRow}:${lastMonthColumn}${totalIncomeRow},{"charttype","line";"color","#228B22";"linewidth",2})`;
   data.push([
     "Total Income",
     `='Summary'!${lastDataColumn}${totalIncomeRow}`,
     `='Summary'!${avgColumn}${totalIncomeRow}`,
     incomeTrendText,
+    incomeSparkline,
     "",
   ]);
+
+  // SPARKLINE for expenses - use red/orange color to indicate spending
+  const expensesSparkline = `=SPARKLINE('Summary'!${firstMonthColumn}${totalExpensesRow}:${lastMonthColumn}${totalExpensesRow},{"charttype","line";"color","#DC143C";"linewidth",2})`;
   data.push([
     "Total Expenses",
     `='Summary'!${lastDataColumn}${totalExpensesRow}`,
     `='Summary'!${avgColumn}${totalExpensesRow}`,
     expensesTrendText,
+    expensesSparkline,
     "",
   ]);
+
+  // SPARKLINE for net cash flow - use column chart with color based on positive/negative
+  // Green for positive values, red for negative values
+  const netCashFlowSparkline = `=SPARKLINE('Summary'!${firstMonthColumn}${netCashFlowRow}:${lastMonthColumn}${netCashFlowRow},{"charttype","column";"color","#228B22";"negcolor","#DC143C"})`;
   data.push([
     "Net Cash Flow",
     `='Summary'!${lastDataColumn}${netCashFlowRow}`,
     `='Summary'!${avgColumn}${netCashFlowRow}`,
     cashFlowTrendText,
+    netCashFlowSparkline,
     "",
   ]);
   const bigPictureEndRow = 6;
@@ -2206,12 +2233,12 @@ function buildDashboardData(statement: FinancialStatement): {
 
   // ========== KEY RATIOS SECTION ==========
   // Row 8: Section header
-  data.push(["KEY RATIOS", "", "", "", ""]);
+  data.push(["KEY RATIOS", "", "", "", "", ""]);
   const keyRatiosHeaderRow = 8;
 
   // Row 9: Column headers for Key Ratios
-  // Columns: Ratio, Your Value, Target, Progress Bar, Status
-  data.push(["Ratio", "Your Value", "Target", "Progress", "Status"]);
+  // Columns: Ratio, Your Value, Target, Progress Bar, Status (no sparkline for ratios)
+  data.push(["Ratio", "Your Value", "Target", "Progress", "Status", ""]);
   const keyRatiosStartRow = 9;
 
   // Row 10-12: Key Ratio metrics with formulas referencing Summary sheet
@@ -2228,6 +2255,7 @@ function buildDashboardData(statement: FinancialStatement): {
     "≥20%",
     savingsProgressFormula,
     savingsStatusFormula,
+    "",
   ]);
 
   // Essential Expenses % of Income formula
@@ -2243,6 +2271,7 @@ function buildDashboardData(statement: FinancialStatement): {
     "≤50%",
     essentialProgressFormula,
     essentialStatusFormula,
+    "",
   ]);
 
   // Discretionary Expenses % of Income formula
@@ -2257,6 +2286,7 @@ function buildDashboardData(statement: FinancialStatement): {
     "≤30%",
     discretionaryProgressFormula,
     discretionaryStatusFormula,
+    "",
   ]);
   const keyRatiosEndRow = 12;
 
@@ -2265,17 +2295,22 @@ function buildDashboardData(statement: FinancialStatement): {
 
   // ========== WHERE YOUR MONEY GOES SECTION ==========
   // Row 14: Section header
-  data.push(["WHERE YOUR MONEY GOES", "", "", "", ""]);
+  data.push(["WHERE YOUR MONEY GOES", "", "", "", "", ""]);
   const spendingHeaderRow = 14;
 
   // Row 15: Column headers for Spending Breakdown
-  data.push(["Category", "Monthly Avg", "% of Expenses", "Visual", ""]);
+  data.push(["Category", "Monthly Avg", "% of Expenses", "Visual", "Trend", ""]);
   const spendingStartRow = 15;
 
   // Row 16-22: Top spending categories with formulas
   // Get top spending categories from detailed categories sheet
   const spendingData = findTopSpendingCategories(statement);
-  const { categories: topCategories, avgColumnLetter: detailedAvgCol } = spendingData;
+  const {
+    categories: topCategories,
+    avgColumnLetter: detailedAvgCol,
+    firstMonthColumn: detailedFirstMonth,
+    lastMonthColumn: detailedLastMonth,
+  } = spendingData;
 
   // Add rows for each top category (up to 7)
   for (let i = 0; i < 7; i++) {
@@ -2297,10 +2332,14 @@ function buildDashboardData(statement: FinancialStatement): {
       // Formula: REPT("█", MAX(1, ROUND(pct*10))) for up to 10 blocks (100%)
       const visualFormula = `=REPT("█",MAX(1,MIN(10,ROUND('Detailed Categories'!${totalCol}${rowNum}/'Summary'!${lastDataColumn}${totalExpensesRow}*10))))&REPT("░",10-MAX(1,MIN(10,ROUND('Detailed Categories'!${totalCol}${rowNum}/'Summary'!${lastDataColumn}${totalExpensesRow}*10))))`;
 
-      data.push([cat.name, avgFormula, pctFormula, visualFormula, ""]);
+      // SPARKLINE for category trend - use bar chart for spending categories
+      // Orange/amber color for spending visualization
+      const categorySparkline = `=SPARKLINE('Detailed Categories'!${detailedFirstMonth}${rowNum}:${detailedLastMonth}${rowNum},{"charttype","bar";"max",MAX('Detailed Categories'!${detailedFirstMonth}${rowNum}:${detailedLastMonth}${rowNum})*1.2;"color1","#FF8C00"})`;
+
+      data.push([cat.name, avgFormula, pctFormula, visualFormula, categorySparkline, ""]);
     } else {
       // Empty placeholder row if fewer than 7 categories
-      data.push(["—", "", "", "", ""]);
+      data.push(["—", "", "", "", "", ""]);
     }
   }
   const spendingEndRow = data.length - 1;
@@ -2310,26 +2349,26 @@ function buildDashboardData(statement: FinancialStatement): {
 
   // ========== INSIGHTS SECTION ==========
   // Row 24: Section header
-  data.push(["INSIGHTS", "", "", "", ""]);
+  data.push(["INSIGHTS", "", "", "", "", ""]);
   const insightsHeaderRow = 24;
 
   // Row 25: Placeholder explanation
-  data.push(["AI-powered insights will appear here after analysis.", "", "", "", ""]);
+  data.push(["AI-powered insights will appear here after analysis.", "", "", "", "", ""]);
   const insightsStartRow = 25;
 
   // Row 26-30: Insight placeholders (to be populated in US-016)
-  data.push(["", "", "", "", ""]);
-  data.push(["", "", "", "", ""]);
-  data.push(["", "", "", "", ""]);
-  data.push(["", "", "", "", ""]);
-  data.push(["", "", "", "", ""]);
+  data.push(["", "", "", "", "", ""]);
+  data.push(["", "", "", "", "", ""]);
+  data.push(["", "", "", "", "", ""]);
+  data.push(["", "", "", "", "", ""]);
+  data.push(["", "", "", "", "", ""]);
   const insightsEndRow = 30;
 
   // Row 31: Empty row for spacing
   data.push([]);
 
   // Row 32: Note about named ranges (per US-013)
-  data.push(["Note: Use named ranges (TotalIncome, TotalExpenses, NetCashFlow, SavingsRate, TransactionData) to reference key metrics.", "", "", "", ""]);
+  data.push(["Note: Use named ranges (TotalIncome, TotalExpenses, NetCashFlow, SavingsRate, TransactionData) to reference key metrics.", "", "", "", "", ""]);
 
   const layout: DashboardLayout = {
     titleRow,
@@ -2359,7 +2398,7 @@ function buildDashboardFormattingRequests(
   layout: DashboardLayout
 ): sheets_v4.Schema$Request[] {
   const requests: sheets_v4.Schema$Request[] = [];
-  const columnCount = 5; // 5 columns: A through E (expanded for Key Ratios progress bars)
+  const columnCount = 6; // 6 columns: A through F (expanded for SPARKLINE trend charts)
 
   // 1. Freeze title row and first column for navigation
   requests.push({
@@ -2499,8 +2538,9 @@ function buildDashboardFormattingRequests(
     { column: 0, width: 180 }, // Metric/Category names
     { column: 1, width: 130 }, // Period Total / Your Value
     { column: 2, width: 100 }, // Monthly Avg / Target
-    { column: 3, width: 120 }, // Trend / Progress
-    { column: 4, width: 130 }, // Status
+    { column: 3, width: 120 }, // Trend text / Progress bars
+    { column: 4, width: 150 }, // Trend Chart (SPARKLINE) / Status
+    { column: 5, width: 50 },  // Padding column
   ];
 
   for (const { column, width } of columnWidths) {
