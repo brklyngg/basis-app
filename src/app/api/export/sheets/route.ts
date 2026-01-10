@@ -222,7 +222,10 @@ export async function GET() {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
+    console.log("[Export Status] Checking auth status for user:", user?.id);
+
     if (authError || !user) {
+      console.log("[Export Status] Unauthorized - authError:", authError?.message);
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -233,8 +236,12 @@ export async function GET() {
       .eq("user_id", user.id)
       .single();
 
+    console.log("[Export Status] Token query result - tokens:", !!googleTokens, "error:", tokensError?.message);
+
     const hasGoogleAuth = !tokensError && googleTokens !== null;
     const needsRefresh = hasGoogleAuth && new Date(googleTokens.expires_at) < new Date();
+
+    console.log("[Export Status] Returning hasGoogleAuth:", hasGoogleAuth, "needsRefresh:", needsRefresh);
 
     return NextResponse.json({
       hasGoogleAuth,
@@ -242,7 +249,7 @@ export async function GET() {
       connectedAt: googleTokens?.created_at || null,
     });
   } catch (error) {
-    console.error("Export status check error:", error);
+    console.error("[Export Status] Error:", error);
     return NextResponse.json(
       { error: "Failed to check export status" },
       { status: 500 }

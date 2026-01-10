@@ -38,11 +38,13 @@ export function ExportDialog({ disabled }: ExportDialogProps) {
 
   // Check Google auth status when dialog opens
   useEffect(() => {
+    console.log("[ExportDialog] Dialog open effect triggered, open:", open, "justReturnedFromOAuth:", justReturnedFromOAuth.current);
     if (open) {
       if (justReturnedFromOAuth.current) {
-        // Skip API check - we trust the OAuth callback result
+        console.log("[ExportDialog] Skipping API check - just returned from OAuth");
         justReturnedFromOAuth.current = false;
       } else {
+        console.log("[ExportDialog] Calling checkGoogleAuth()");
         checkGoogleAuth();
       }
     }
@@ -51,7 +53,9 @@ export function ExportDialog({ disabled }: ExportDialogProps) {
   // Check URL params for OAuth callback
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    console.log("[ExportDialog] URL params effect - search:", window.location.search);
     if (params.get("google_connected") === "true") {
+      console.log("[ExportDialog] Found google_connected=true, setting up auth state");
       justReturnedFromOAuth.current = true;
       setOpen(true);
       setHasGoogleAuth(true);
@@ -61,6 +65,7 @@ export function ExportDialog({ disabled }: ExportDialogProps) {
     }
     const googleError = params.get("google_error");
     if (googleError) {
+      console.log("[ExportDialog] Found google_error:", googleError);
       setOpen(true);
       setError(`Google connection failed: ${googleError}`);
       window.history.replaceState({}, "", window.location.pathname);
@@ -68,16 +73,19 @@ export function ExportDialog({ disabled }: ExportDialogProps) {
   }, []);
 
   async function checkGoogleAuth() {
+    console.log("[ExportDialog] checkGoogleAuth() called");
     setIsCheckingAuth(true);
     setError(null);
     try {
       const res = await fetch("/api/export/sheets");
+      console.log("[ExportDialog] API response status:", res.status);
       if (res.ok) {
         const data = await res.json();
+        console.log("[ExportDialog] API response data:", data);
         setHasGoogleAuth(data.hasGoogleAuth);
       }
     } catch (err) {
-      console.error("Failed to check Google auth:", err);
+      console.error("[ExportDialog] Failed to check Google auth:", err);
     } finally {
       setIsCheckingAuth(false);
     }
